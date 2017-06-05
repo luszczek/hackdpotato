@@ -719,6 +719,15 @@ When rng_type is CURAND_RNG_PSEUDO_DEFAULT, the type chosen is CURAND_RNG_PSEUDO
 /***************************| END of random generator part |***************************************/  
 
 
+  cudaEvent_t events[3];
+  int nevents = (sizeof events) / (sizeof events[0]);
+
+  for (int i = 0; i < nevents ; ++i)
+    cudaEventCreate(events+i, 0);
+
+
+  cudaEventRecord(events[0], 0);
+
 /***************************| score of the first set of chromosomes |*******************************
 * Here we score the two arrays of parents with solution parameters in the initial population       * 
 *****************************************nm  **********************************************************/
@@ -755,6 +764,8 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]), thrust::dev
       std::cerr << i << ": [" << ptrs[i] << "] = " << scores[i] << " {"<<Vs[ptrs[i]]<<" "<<Vs[ptrs[i]+1]<<" "<<Vs[ptrs[i]+2]<<" "<<Vs[ptrs[i]+3]<<"}\n";
     }
 #endif
+
+  cudaEventRecord(events[1], 0);
 
 /****************************| Let us begin the iterations through generations |********************
 
@@ -882,6 +893,8 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
 
   } // here the loop for generations ends
 
+  cudaEventRecord(events[2], 0);
+
 /****************************************************************************************************
 *    TERMINATION, LAST RESULTS< SCORES AND PARAMETERS FOR EACH INDIVIDUAL
 ****************************************************************************************************/
@@ -906,6 +919,16 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
     for(int i=0;i<pSize;i++)
       saveS.write((char *)(Vs+ptrs[i]),genomeSize*sizeof(*Vs));
   }
+
+  cudaEventSynchronize(events[nevents-1]);
+
+  float elapsedTimeInit, elapsedTimeCompute;
+
+  cudaEventElapsedTime(&elapsedTimeInit, events[0], events[1]);
+  cudaEventElapsedTime(&elapsedTimeCompute, events[1], events[2]);
+
+  std::cout << "Initialization time: " << elapsedTimeInit * 1e-3;
+  std::cout << "Computation time: " << elapsedTimeCompute * 1e-3;
 
 #if 0
   std::cout << scores[pSize] << std::endl;

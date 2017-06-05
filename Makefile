@@ -2,8 +2,9 @@
 
 CFLAGS_DEBUG = -DDEBUG=3 -DTHRUST_DEBUG -G -g
 
+# CC = nvcc
 CC = nvcc
-CFLAGS = -arch=sm_20  #CFLAGS_DEBUG
+CFLAGS = -arch=sm_20  #$(CFLAGS_DEBUG)
 
 LDFLAGS = -G -g
 LIBS = -lcurand

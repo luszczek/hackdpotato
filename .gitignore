@@ -2,3 +2,5 @@
 *.o
 /genA
 *.scorep_init.c
+parmfile.*
+scores*.dat

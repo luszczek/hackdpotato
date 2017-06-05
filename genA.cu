@@ -927,8 +927,8 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
   cudaEventElapsedTime(&elapsedTimeInit, events[0], events[1]);
   cudaEventElapsedTime(&elapsedTimeCompute, events[1], events[2]);
 
-  std::cout << "Initialization time: " << elapsedTimeInit * 1e-3;
-  std::cout << "Computation time: " << elapsedTimeCompute * 1e-3;
+  std::cout << "Initialization time: " << elapsedTimeInit * 1e-3 << std::endl;
+  std::cout << "Computation time: " << elapsedTimeCompute * 1e-3 << std::endl;
 
 #if 0
   std::cout << scores[pSize] << std::endl;

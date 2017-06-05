@@ -1,0 +1,8 @@
+pSize=10;# population size
+nGen=100;
+pMut=0.01
+max=0.5
+pCross=0.8
+rseed=314568
+peng=5
+ncp=5

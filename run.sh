@@ -22,7 +22,7 @@ sbatch << EOF
 #SBATCH -t 30:00
 #SBATCH -o logfile.psize${psize}.ngen${ngen}.1gpu
 
-nvprof -o output.$psize.$ngen.nvp ./genA -p parmfile.${psize}.${ngen} -s scores.${psize}.${ngen}.dat < input > try.${psize}.${ngen}.frcmod
+#nvprof -o output.$psize.$ngen.nvp ./genA -p parmfile.${psize}.${ngen} -s scores.${psize}.${ngen}.dat < input > try.${psize}.${ngen}.frcmod
 rm parmfile.$psize.$ngen
 rm scores.${psize}.${ngen}.dat
 EOF

@@ -68,27 +68,18 @@ __global__ void mateIt(float *Vs, int *ptrs, const float *areas, const float *su
 /* 
 figure out index  blockId.x is the index by blocks, blockDIM.x is the elements per blocks (# of threads ina block)
 threadIdx is the index for threads
-  e.g if 8 threads per block and 4 blocks then at thread 4 in block 2 the index = 2 * 8 + 4 = 20 
-  blockDim is specified in second parameter of the execution configuration (triple chevron <<< >>>
-  this is to the bottom of the code and the second parameter is called BLOCK_SIZE which is 256
 */
   int i=blockIdx.x * blockDim.x + threadIdx.x;
 /* 
 first parent, second parent, crossover random numbers 
 randi is three arrays with block and thread index of randoms numbers from 0 to 255;
-these random numbers represent the initial populations
-one array is the first parent, another is second parent and the third one is the crossover random numbers
 The cross over random numbers 
 */
   int randi=i*3;
-/* 
-multiply i by 2, as we will have 2 parents and 2 offspring
-multiplication is done using a left bitwise (<<) by 1
-*/
+//multiply i by 2, as we will have 2 parents and 2 offspring multiplication is done using a left bitwise (<<) by 1
   i<<=1;
 /* 
 if we're in the population (sometimes warps may go past) 
-psize as mentioned above is an input parameter which is the number of possible solutions
 The statement if (i<psize) is common in cuda:
   Before i index is used to access array elements, its value is checked against the number of elements, n, 
  to ensure there are no out-of-bounds memory accesses. This check is required for cases where the 
@@ -102,16 +93,11 @@ The statement if (i<psize) is common in cuda:
     parent[0]=parent[1]=-1;
 /* 
 find parent where cumulative (cum) area (A) is less than random target (tgt) area
-selection of parents depends on cumulative probability being less than the random probabilities (random numbers)
-rands[] is a function that returns a pseudo-random number (pseudo random number generator)
-The pseudo random numbers range from 0 to RAND_MAX(default is 32767) 
-The random probabilities (tgtA) is random numbers multiply by sum of all the individual probabilities
 */
     float cumA=0.0f, tgtA=rands[randi++]* *sumArea;
     while(cumA<=tgtA){
       ++parent[0];
       cumA+=areas[ptrs[parent[0]]/genomeSize];
-    //printf("%d\n",rands);
 /* rands[randi-1] is the index back to zero since it is the first set of parents */
     }
   #if DEBUG>2
@@ -126,11 +112,9 @@ The random probabilities (tgtA) is random numbers multiply by sum of all the ind
         ++parent[1];
       cumA+=areas[ptrs[parent[1]]/genomeSize];
     }
-    //printf("rands[%d] ; %f ; %f=%f * %f - %f\n",randi, cumA, tgtA, rands[randi-1], *sumArea, areas[ptrs[parent[0]]/genomeSize]);
-    //printf("second parent\n");
-  //#if DEBUG>2
-    //printf("Make offspring %d from %d and %d (%f=%f*(%f-%f)) %d\n", i, parent[0], parent[1], tgtA, rands[randi-1], *sumArea, areas[ptrs[parent[0]]/genomeSize], randi);
-  //#endif
+  #if DEBUG>2
+    printf("Make offspring %d from %d and %d (%f=%f*(%f-%f)) %d\n", i, parent[0], parent[1], tgtA, rands[randi-1], *sumArea, areas[ptrs[parent[0]]/genomeSize], randi);
+  #endif
     /* add offset of pSize to i because it is a child (next population) */
     i+=pSize;
     /* use ptrs to get indices into Vs */
@@ -139,18 +123,18 @@ The random probabilities (tgtA) is random numbers multiply by sum of all the ind
     parent[1]=ptrs[parent[1]];
     /* set j to index for the next set of Vs */
     j=i0+genomeSize;
-/* put parent[0], parent[1], and i1 relative to i0, so we can just add i0 for index */
+    /* put parent[0], parent[1], and i1 relative to i0, so we can just add i0 for index */
     parent[0]-=i0;
     parent[1]-=i0;
     i1-=i0;
-/* start with crossover pt at the end (no crossover) */
+    /* start with crossover pt at the end (no crossover) */
     int crossPt=j;
-/* check for crossover */
+    /* check for crossover */
     if(rands[randi]<pCross){
       crossPt=i0+1+(int)(rands[randi]/pCross*(float)(genomeSize-1));
     }
     while(i0<crossPt){
-/* load next bit from parent and increment i */
+    /* load next bit from parent and increment i */
       Vs[i0]=Vs[parent[0]+i0];
       Vs[i1+i0]=Vs[parent[1]+i0];
       ++i0;
@@ -225,8 +209,6 @@ __global__ void scoreIt(float *scores, float *areas, const float *Vs, const int 
   //if((i<<1)<(pSize-1)*pSize){
   if(i<pSize){
   float *x=xx+i*nConf;  // for the error of each conformation
-  // don't add pSize to get into children
-  // i+=pSize;
   // get reference to score
   float *S=scores+i;
   // set score to 0
@@ -248,17 +230,16 @@ __global__ void scoreIt(float *scores, float *areas, const float *Vs, const int 
     s=0.0f;
     /* loop only in units without break points */
     while(c<breaks[b+1]){
-/* 
-start with delta E (tgts) for a given conformation (c) within a break; see load.cpp 
-conf (c) goes through until it reach a break. the loop will set delta E 
-*/
-      //printf("x[%d]\n",c);
+  /* 
+  start with delta E (tgts) for a given conformation (c) within a break; see load.cpp 
+  conf (c) goes through until it reach a break. the loop will set delta E 
+  */
       x[c]=tgts[c];
-/* 
-subtract contributions from each parameter for conformation c 
-for each conformation 
- e.g deltaE - cos (dihedral * periodicity) * parameter generated from chromosomes
-*/
+  /* 
+  subtract contributions from each parameter for conformation c 
+  for each conformation 
+  e.g deltaE - cos (dihedral * periodicity) * parameter generated from chromosomes
+  */
       for(i=i0;i<j;i++,t++){
         x[c]-=tset[t]*Vs[i];
       }
@@ -266,7 +247,6 @@ for each conformation
       for(int c2=breaks[b];c2<c;c2++){
         float err=x[c]-x[c2];
         s+=(err<0.0f?-err:err);
-        //++nP;
       }
       /* next conformation */
       ++c;
@@ -276,7 +256,6 @@ for each conformation
     /* go to next breakpoint */
     ++b;
   }
-  //areas[i0/genomeSize]=__expf(-*S/*formerBest);
 #if DEBUG>1
   printf("areas[%d]=%f\n",i0/genomeSize,areas[i0/genomeSize]);
 #endif
@@ -297,7 +276,6 @@ for each conformation
 
 __global__ void calcAreas(float *scores, float *areas, const int *ptrs, const int pSize, const int genomeSize) {
   int i=blockIdx.x * blockDim.x + threadIdx.x;
-  //if((i<<1)<(pSize-1)*pSize){
   if(i<pSize){
     areas[ptrs[i]/genomeSize]=__expf(-scores[i]/scores[0]);
   }
@@ -418,7 +396,8 @@ number of thread blocks in the grid, and the second specifies (BLOCK_SIZE) the n
 argc is a vairable with the number of arguments passed to GenA
 argv is a vector of strings representing the the arguments the GenA takes
 To run genA:
-./genA psize nGen pMut max pCross rseed < inputfile > outputfile 
+./genA -p parmfile < inputfile > outputfile 
+parameters in the parmfile
 psize: population size, 1000-2000 
 nGen: number of generations, > 100000 
 pMut: probability of mutation, 0.01 - 0.001
@@ -485,21 +464,18 @@ int main(int argc, char *argv[]){
   int ncp  = cfg.getValueOfKey<int>("ncp", 1);
   std::cout << "Print scores of only " << ncp << " chromosomes every peng \n\n";
 
+/* initializing CPU variables and arrays */
+  int genomeSize, g, N, nConf=0, save=pSize/10;
+  float *rands, *Vs, *tset, *tgts, *wts, *scores; 
+  int *ptrs, *breaks, nBreaks;
 
-
-/* initializing GPU arrays 
-size_t is the unsigned integer type of the result of the sizeof operator
-it is commonly used for array indexing and loop counting  */
-  float *rands;
+/* initializing GPU variables and arrays */
   float *rands_d;
-  int genomeSize;
-  size_t nRands;
+  size_t nRands;cuda 
   curandGenerator_t gen;
-  int g;
-  float *Vs, *Vs_d;
-  int *ptrs_d, *ptrs;
-  float *tset_d, *tgts_d, *wts_d, *tset, *tgts, *wts, *xx_d, *scores_d, *scores, *areas_d;
-  int N, nConf=0, save=pSize/10, *breaks, *breaks_d, nBreaks;
+  int *ptrs_d, *breaks_d;
+  float *Vs_d, *tset_d, *tgts_d, *wts_d, *xx_d, *scores_d, *areas_d;
+  
 /*specify the string of the savefile, scorefile, loadfile name */
   std::string saveFile,loadFile,scoreFile;
 /* dealing with loading the input file and save file string name */
@@ -516,7 +492,6 @@ it is commonly used for array indexing and loop counting  */
 *                    Initializing host data(Normally the 2nd step)                              *
 *  check load.cpp for this section                                                              *
 *  map is a way to create a dictionary, correction map is an array with key                     * 
-*  that is a string and Dihcorrection which is an ....                                          *
 ************************************************************************************************/
 /* initiating container with key and values name correctionMap */
   std::map<std::string,DihCorrection> correctionMap;
@@ -527,7 +502,6 @@ correctionMap is .....   */
   load(std::cin, &tset, &tgts, &wts, &nConf, &breaks, &nBreaks, &genomeSize, correctionMap);
 
 /*******************************| memory allocation |********************************************
-*   For any CUDA program, the 1st step is to declare and allocate host and device memory        *
 *************************************************************************************************/
 /* first cudaMalloc to initialize the CUDA subsystem
 cudaMalloc allocates size bytes of linear memory on the device and returns in *devPtr
@@ -536,6 +510,7 @@ a pointer to the allocated memory. It takes two parameters:
 the variable breaks_d (stored in memory)
  (2) size - Requested allocation size in bytes, which is nBreaks
 */
+
 #if DEBUG && 0
   for(int i=0;i<nConf;i++){
     for(int j=0;j<genomeSize;j++)
@@ -557,7 +532,6 @@ than the host array at this point in the algorithm. Later we will add results to
   tset_d=wts_d+nBreaks-1;
 
 /********************************| transfer data from host to device |****************************
-*                    For any CUDA program, the 3rd step is to                                    *
 *  copy data arrays from CPU host (breaks,tset,tgts,wts) to device GPU (breaks_d, etc)           *
 *************************************************************************************************/
 
@@ -605,7 +579,7 @@ so 20 conf will give tgts of 20 (nconf) * 12 (# of dih * periodicity) = 120
   std::cerr << nBlocks << " blocks\n";
 #endif
 
-/*******************************| initializing host and device variables|************************
+/*******************************| initializing more host and device variables|************************
 *         N (bitwise operation below) is the pSize (1st input) multiply by 2;                   *
 *       initiating the chromosomes  which have the solns                                        *
 ************************************************************************************************/
@@ -716,9 +690,8 @@ When rng_type is CURAND_RNG_PSEUDO_DEFAULT, the type chosen is CURAND_RNG_PSEUDO
     loadS.read((char*)Vs,pSize*genomeSize*sizeof(*Vs));
     cudaMemcpy(Vs_d, Vs, pSize*genomeSize*sizeof(*Vs), cudaMemcpyHostToDevice);
   }
-/***************************| END of random generator part |***************************************/  
 
-
+/* timing event */
   cudaEvent_t events[3];
   int nevents = (sizeof events) / (sizeof events[0]);
 
@@ -729,8 +702,8 @@ When rng_type is CURAND_RNG_PSEUDO_DEFAULT, the type chosen is CURAND_RNG_PSEUDO
   cudaEventRecord(events[0], 0);
 
 /***************************| score of the first set of chromosomes |*******************************
-* Here we score the two arrays of parents with solution parameters in the initial population       * 
-*****************************************nm  **********************************************************/
+* Here we score initial chromsomes                                                                 * 
+***************************************************************************************************/
 #if DEBUG
     std::cerr << "1stscore" << std::endl;
 #endif
@@ -769,7 +742,7 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]), thrust::dev
 
 /****************************| Let us begin the iterations through generations |********************
 
- Genetic algorithm iterations through the number of generations (nGen: 2nd input) 
+ Genetic algorithm iterations through the number of generations or isolation time 
 
 ****************************************************************************************************/
   //std::cout << "There is " << nGen << " generations" << " and " << N << " number of chromosomes (2 x population size)" << std::endl;
@@ -832,7 +805,6 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]), thrust::dev
       //std::cout << i << ": [" << ptrs[i] << "] = " << scores[i] << " {"<<Vs[ptrs[i]]<<" "<<Vs[ptrs[i]+1]<<" "<<Vs[ptrs[i]+2]<<" "<<Vs[ptrs[i]+3]<<"}\n";
      std::cerr << i << ": [" << ptrs[i] << "] = " << scores[i] << " {"<<Vs[ptrs[i]]<<" "<<Vs[ptrs[i]+1]<<" "<<Vs[ptrs[i]+2]<<" "<<Vs[ptrs[i]+3]<<"}\n";
     }
-    
 #endif
 
 /*****| Step6: Sort the scored chromosomes (individuals) & select for mating for next generation |**/
@@ -877,16 +849,11 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
       cudaMemcpy(scores, scores_ds[curList], sizeof(*scores)*N, cudaMemcpyDeviceToHost);
       //cudaMemcpy(Vs, Vs_d, sizeof(*Vs)*N*genomeSize, cudaMemcpyDeviceToHost);
       //cudaMemcpy(ptrs, ptrs_ds[curList], sizeof(*ptrs)*N, cudaMemcpyDeviceToHost);
-      //scoreparmfile << "#Generation" << "Scores\n";
-      //option: to print scores for all chromosomes but I am only printing ncp  for(int i=0;i<N;i++){
 
       for(int m=0;m<ncp;m++){
         scorefile << std::setw(6) << g << std::setw(14) << m << std::setw(18) << scores[m] << "\n";
         //scorefile << "Score: " << scores[m] << "\n";
         //for(std::map<std::string,DihCorrection>::iterator it=correctionMap.begin(); it!=correctionMap.end(); ++it){
-           //scoreparmfile << it->second.setGenome(Vs+ptrs[i]);
-          //std::cout << it->second.setGenome(Vs+ptrs[i]);
-        
       }
       scorefile.close();
     }
@@ -899,7 +866,7 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
 *    TERMINATION, LAST RESULTS< SCORES AND PARAMETERS FOR EACH INDIVIDUAL
 ****************************************************************************************************/
  
-/*  copy over the results from GPU to the CPU to save the scores and parameters */
+/*  copy over the end result from GPU to the CPU to save the scores and parameters */
   cudaMemcpy(Vs, Vs_d, sizeof(float)*genomeSize*N, cudaMemcpyDeviceToHost);
   cudaMemcpy(ptrs, ptrs_ds[curList], sizeof(int)*N, cudaMemcpyDeviceToHost);
   cudaMemcpy(scores, scores_ds[curList], sizeof(float)*N, cudaMemcpyDeviceToHost);
@@ -954,14 +921,12 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
 
 /*****************| Free up GPU Memory |*******************************************************/
   curandDestroyGenerator(gen);
-  //cudaFree(xx_d);
   cudaFree(Vs_d);
   cudaFree(ptrs_d);
   cudaFree(breaks_d);
   cudaFree(tgts_d);
   free(Vs);
   free(scores);
-  //cudaFree(rands_d);
   free(rands);
   return 0;
 }

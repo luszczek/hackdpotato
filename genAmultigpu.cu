@@ -34,9 +34,9 @@ struct Parameters {
   int genomeSize, nConf, N;
   float *Vs, *tset, *tgts, *wts, *scores; 
   int *ptrs, *breaks, nBreaks;
-
+  int curList=0;
   size_t nRands; 
-
+  
   DevicePointers devicePointers[MAX_SUPPORTED_GPUS];
 };
 
@@ -183,6 +183,27 @@ so 20 conf will give tgts of 20 (nconf) * 12 (# of dih * periodicity) = 120
 
   error = cudaMemcpy(parameters.devicePointers[gpuDevice].ptrs_d, parameters.ptrs, sizeof(int)*parameters.N, cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
+  
+/*
+for CUDA beginners on thrust
+thrust is a c++ template library for CUDA similar to STL
+it have two containers: thrust::host_vector<type> and thrust::device_vector<type>
+the containers make common operations such as cudaMalloc, cudaFree, cudaMemcpy, more concise
+ e.g thrust::host_vector<int> vec_h(2) will allocate host vector with 2 elements
+     thrust::device_vectore<int> vec_d = vec_h will copy host vector to device
+this will allow you to directly manipulate device values from the host
+     so vec_d[0] = 5; can be done from host
+and once you output vector memory is automatically released
+    std::cout << "my vector" << vec_d[0] << std::endl;
+it have a few algorithms, we use thrust::sort(),
+*/
+
+  //thrust::device_ptr<int> dPtrs(parameters.devicePointers[gpuDevice].ptrs_d), dPtrs_save(parameters.devicePointers[gpuDevice].ptrs_d+save);
+  //thrust::device_ptr<float> dScores(scores_d), dVs(Vs_d);
+  //thrust::device_ptr<float> dScores_save(scores_d+save),
+  //                          dScores_pSize(scores_d+pSize),
+  //                          dScores_N(scores_d+N);
+
 }
 
 int
@@ -200,6 +221,9 @@ main(int argc, char *argv[]) {
 
   for (int device = 0; device < maxGpuDevices; device++)
     CopyArrays(device, parameters);
+    curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
+    curandGenerateNormal(gen, Vs_d, N*genomeSize, 0, 1);
+
 
   return 0;
 }

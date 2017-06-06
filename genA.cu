@@ -88,7 +88,7 @@ The statement if (i<psize) is common in cuda:
 */
   if(i<pSize){
     int parent[2];
-    int j, from=0;
+    int j;
 /* figure out parents */
     parent[0]=parent[1]=-1;
 /* 
@@ -464,17 +464,21 @@ int main(int argc, char *argv[]){
   int ncp  = cfg.getValueOfKey<int>("ncp", 1);
   std::cout << "Print scores of only " << ncp << " chromosomes every peng \n\n";
 
+/* Hardcoding these input but we will make user options 
+  nisland is the number of subpopulation, iTime is the isolation time, nMig is the number of
+  migrants added to migrant pool. nEx number of exchange btwn migrant pool and subpop */
+  int nIsland, iTime, nMig, nEx;
+
 /* initializing CPU variables and arrays */
   int genomeSize, g, N, nConf=0, save=pSize/10;
   float *rands, *Vs, *tset, *tgts, *wts, *scores; 
   int *ptrs, *breaks, nBreaks;
 
 /* initializing GPU variables and arrays */
-  float *rands_d;
-  size_t nRands;cuda 
+  size_t nRands; 
   curandGenerator_t gen;
   int *ptrs_d, *breaks_d;
-  float *Vs_d, *tset_d, *tgts_d, *wts_d, *xx_d, *scores_d, *areas_d;
+  float *rands_d, *Vs_d, *tset_d, *tgts_d, *wts_d, *xx_d, *scores_d, *areas_d;
   
 /*specify the string of the savefile, scorefile, loadfile name */
   std::string saveFile,loadFile,scoreFile;

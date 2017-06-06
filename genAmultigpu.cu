@@ -8,9 +8,12 @@
 // this value is per single node
 #define MAX_SUPPORTED_GPUS 16
 
+/* specifying # of threads for a given block, 256 block threads (index 0 to 255) */
+const int BLOCK_SIZE=256;
+
 struct DevicePointers {
-  int *breaks_d;
-  float *tset_d, *tgts_d, *wts_d;
+  int *ptrs_d, *breaks_d;
+  float *rands_d, *Vs_d, *tset_d, *tgts_d, *wts_d, *xx_d, *scores_d, *areas_d;
 };
 
 struct Parameters {
@@ -28,9 +31,11 @@ struct Parameters {
   migrants added to migrant pool. nEx number of exchange btwn migrant pool and subpop */
   int nIsland, iTime, nMig, nEx;
 
-  int genomeSize, nConf;
-  float *tset, *tgts, *wts; 
-  int *breaks, nBreaks;
+  int genomeSize, nConf, N;
+  float *Vs, *tset, *tgts, *wts, *scores; 
+  int *ptrs, *breaks, nBreaks;
+
+  size_t nRands; 
 
   DevicePointers devicePointers[MAX_SUPPORTED_GPUS];
 };
@@ -90,10 +95,64 @@ void LoadParameters(Parameters &parameters, std::map<std::string,DihCorrection> 
 }
 
 void AllocateArrays(int gpuDevice, Parameters &parameters) {
+  cudaError_t error;
+
   cudaMalloc((void **)&parameters.devicePointers[gpuDevice].breaks_d, parameters.nBreaks*sizeof(int));
   cudaMalloc((void **)&parameters.devicePointers[gpuDevice].tgts_d, (parameters.nBreaks-1+parameters.nConf*(1+parameters.genomeSize))*sizeof(float));
   parameters.devicePointers[gpuDevice].wts_d=parameters.devicePointers[gpuDevice].tgts_d+parameters.nConf;
   parameters.devicePointers[gpuDevice].tset_d=parameters.devicePointers[gpuDevice].wts_d+parameters.nBreaks-1;
+
+/**********************| initiate GPU blocks and # of random variable |*************************** 
+*          we need randoms, new pop 3xcrossover, genomeSizexmut                                  *    
+*        genome size is the number of genes which is all the parameters,                         *
+*   e.g for 4 periodicity and three dihedral fitting, then genomesize will be 4 * 3 = 12         *
+*   nRands is number of randoms we need for each set of parameters                               *
+*   e.g if psize (population size) is 10, then number of random number we will need is           *
+*                   (3+(# of periodicity x # of dihedral)) * psize                               *
+* so for 4 periodicity and 3 dihedral fitting (chi1 chi2 chi3), then nRands = 3+12 * 10 = 150    *
+*________________________________________________________________________________________________*  
+*  nBlocks is dependent on the population size, it is use to figure out how many GPU blocks      *
+*  we need to initialize the arrays for calculations. Each block has 256 threads.                *
+*  one thread represent one individual (chromosome with soln parameters) from the population     *
+*   e.g population size of 2000 will require (2000+256-1)/256 = 8.81 => 8 blocks                 *
+*                                                                                                *
+*************************************************************************************************/
+  parameters.nRands=(3+parameters.genomeSize)*parameters.pSize;
+  int nBlocks=(parameters.pSize+BLOCK_SIZE-1)/BLOCK_SIZE;
+
+/*******************************| initializing more host and device variables|************************
+*         N (bitwise operation below) is the pSize (1st input) multiply by 2;                   *
+*       initiating the chromosomes  which have the solns                                        *
+************************************************************************************************/
+
+  float *rands=(float *)malloc(parameters.nRands*sizeof(float));
+  //cudaMalloc((void **)&rands_d, nRands*sizeof(float));
+  parameters.N=(parameters.pSize<<1);
+  error=cudaMalloc((void **)&parameters.devicePointers[gpuDevice].Vs_d, (parameters.N*(parameters.genomeSize+4)+parameters.pSize*parameters.nConf+parameters.nRands)*sizeof(float));
+  if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
+  parameters.devicePointers[gpuDevice].rands_d=parameters.devicePointers[gpuDevice].Vs_d+parameters.N*parameters.genomeSize;
+  parameters.devicePointers[gpuDevice].scores_d=parameters.devicePointers[gpuDevice].rands_d+parameters.nRands;
+  parameters.devicePointers[gpuDevice].areas_d=parameters.devicePointers[gpuDevice].scores_d+(parameters.N<<1);
+  parameters.devicePointers[gpuDevice].xx_d=parameters.devicePointers[gpuDevice].areas_d+(parameters.N<<1);
+  parameters.scores=(float *)malloc(sizeof(*parameters.scores)*parameters.N);
+  float *scores_ds[2];
+  scores_ds[0]=parameters.devicePointers[gpuDevice].scores_d;
+  scores_ds[1]=parameters.devicePointers[gpuDevice].scores_d+parameters.N;
+
+  parameters.Vs=(float *)malloc(parameters.N*parameters.genomeSize*sizeof(float));
+  /*allocate the memory space to hold array of pointers (prts) of size N (2*pSize)
+  these pointers point to the individuals (chromosome) in the population */
+  parameters.ptrs=(int *)malloc(sizeof(int)*parameters.N);
+  parameters.ptrs[0]=0;
+  for (int g=1;g<parameters.N;g++)parameters.ptrs[g]=parameters.ptrs[g-1]+parameters.genomeSize;
+  error = cudaMalloc((void **)&parameters.devicePointers[gpuDevice].ptrs_d, parameters.N*2*sizeof(int));
+  if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
+  int *ptrs_ds[2];
+  ptrs_ds[0]=parameters.devicePointers[gpuDevice].ptrs_d;
+  ptrs_ds[1]=parameters.devicePointers[gpuDevice].ptrs_d+parameters.N;
+  int curList=0;
+
+
 }
 
 
@@ -113,13 +172,16 @@ so 20 conf will give tgts of 20 (nconf) * 12 (# of dih * periodicity) = 120
   error = cudaMemcpy(parameters.devicePointers[gpuDevice].breaks_d, parameters.breaks, parameters.nBreaks*sizeof(parameters.breaks[0]), cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 
-  cudaMemcpy(parameters.devicePointers[gpuDevice].tset_d, parameters.tset, parameters.nConf*parameters.genomeSize*sizeof(float), cudaMemcpyHostToDevice);
+  error = cudaMemcpy(parameters.devicePointers[gpuDevice].tset_d, parameters.tset, parameters.nConf*parameters.genomeSize*sizeof(float), cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 
-  cudaMemcpy(parameters.devicePointers[gpuDevice].tgts_d, parameters.tgts, parameters.nConf*sizeof(float), cudaMemcpyHostToDevice);
+  error = cudaMemcpy(parameters.devicePointers[gpuDevice].tgts_d, parameters.tgts, parameters.nConf*sizeof(float), cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 
-  cudaMemcpy(parameters.devicePointers[gpuDevice].wts_d, parameters.wts, (parameters.nBreaks-1)*sizeof(*parameters.wts), cudaMemcpyHostToDevice);
+  error = cudaMemcpy(parameters.devicePointers[gpuDevice].wts_d, parameters.wts, (parameters.nBreaks-1)*sizeof(*parameters.wts), cudaMemcpyHostToDevice);
+  if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
+
+  error = cudaMemcpy(parameters.devicePointers[gpuDevice].ptrs_d, parameters.ptrs, sizeof(int)*parameters.N, cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 }
 

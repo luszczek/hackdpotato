@@ -2,9 +2,10 @@
 
 CFLAGS_DEBUG = -DDEBUG=3 -DTHRUST_DEBUG -G -g
 
+CFLAGS_GPROF = -Xcompiler "-g -pg"
 # CC = nvcc
 CC = nvcc
-CFLAGS = -arch=sm_20  #$(CFLAGS_DEBUG)
+CFLAGS = -arch=sm_20 #$(CFLAGS_GPROF)  #$(CFLAGS_DEBUG)
 
 LDFLAGS = -G -g
 LIBS = -lcurand

@@ -24,6 +24,8 @@ sbatch << EOF
 #SBATCH -o %j-psize-${psize}-ngen-${ngen}-1-gpu.out
 #SBATCH -e %j-psize-${psize}-ngen-${ngen}-1-gpu.err
 
+#nvprof --print-gpu-trace ./genA -p parmfile.${psize}.${ngen} -s scores.${psize}.${ngen}.dat < input
+#nvprof --cpu-profiling on --cpu-profiling-max-depth 10 --cpu-profiling-mode top-down --cpu-profiling-thread-mode separated -f -o small-profile.nvprof ./genA -p parmfile.${psize}.${ngen} -s scores.${psize}.${ngen}.dat < input
 ./genA -p parmfile.${psize}.${ngen} -s scores.${psize}.${ngen}.dat < input
 rm -f parmfile.$psize.$ngen
 rm -f scores.${psize}.${ngen}.dat

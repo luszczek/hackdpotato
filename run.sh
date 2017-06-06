@@ -9,7 +9,7 @@ max=0.5
 pCross=0.8
 rseed=314568
 peng=5000
-ncp=5000
+ncp=$psize
 EOF
 sbatch << EOF
 #!/bin/bash

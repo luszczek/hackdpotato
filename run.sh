@@ -20,11 +20,12 @@ sbatch << EOF
 #SBATCH -p long
 #SBATCH --gres=gpu:1
 #SBATCH -t 30:00
-#SBATCH -o logfile.psize${psize}.ngen${ngen}.1gpu
+#SBATCH -o %j-psize-${psize}-ngen-${ngen}-1-gpu.out
+#SBATCH -e %j-psize-${psize}-ngen-${ngen}-1-gpu.err
 
-#nvprof -o output.$psize.$ngen.nvp ./genA -p parmfile.${psize}.${ngen} -s scores.${psize}.${ngen}.dat < input > try.${psize}.${ngen}.frcmod
-rm parmfile.$psize.$ngen
-rm scores.${psize}.${ngen}.dat
+./genA -p parmfile.${psize}.${ngen} -s scores.${psize}.${ngen}.dat < input
+rm -f parmfile.$psize.$ngen
+rm -f scores.${psize}.${ngen}.dat
 EOF
 done
 done

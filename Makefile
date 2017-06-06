@@ -1,15 +1,20 @@
 # -*- Makefile -*-
 
-CC_DEBUG_FLAGS = -DDEBUG=3 -DTHRUST_DEBUG -G -g
+CFLAGS_DEBUG = -DDEBUG=3 -DTHRUST_DEBUG -G -g
 
+# CC = nvcc
 CC = nvcc
-CXX = nvcc
-CFLAGS = -arch=sm_20 
+CFLAGS = -arch=sm_20  #$(CFLAGS_DEBUG)
 
 LDFLAGS = -G -g
-LDLIBS = -lcurand
+LIBS = -lcurand
 
-genA: genA.o parse.o load.o
+.PHONY: all
+all: genA
 
-genA.o: genA.cu
-	$(CC) -c $< -O $@
+genA: genA.cu
+	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LIBS)
+
+.PHONY: clean
+clean:
+	rm -f *.o genA parmfile.* scores.*.dat *scorep_init.c try.*.frcmod

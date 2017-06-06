@@ -854,6 +854,10 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
       //cudaMemcpy(Vs, Vs_d, sizeof(*Vs)*N*genomeSize, cudaMemcpyDeviceToHost);
       //cudaMemcpy(ptrs, ptrs_ds[curList], sizeof(*ptrs)*N, cudaMemcpyDeviceToHost);
 
+      if (ncp > pSize) {
+      printf("Parmfile error: ncp should be smaller than psize! \n");
+      std::abort();
+      }
       for(int m=0;m<ncp;m++){
         scorefile << std::setw(6) << g << std::setw(14) << m << std::setw(18) << scores[m] << "\n";
         //scorefile << "Score: " << scores[m] << "\n";

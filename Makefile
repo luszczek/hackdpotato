@@ -16,6 +16,12 @@ all: genA
 genA: genA.cu
 	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LIBS)
 
+genAmultigpu: genAmultigpu.o load.o
+	$(CC) $(LDFLAGS) $< -o $@ $(LIBS)
+
+genAmultigpu.o: genAmultigpu.cu
+	$(CC) $(CFLAGS) -c $< -o $@
+
 .PHONY: clean
 clean:
 	rm -f *.o genA parmfile.* scores.*.dat *scorep_init.c try.*.frcmod

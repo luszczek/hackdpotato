@@ -19,6 +19,7 @@ sbatch << EOF
 #SBATCH --reservation=hackathon
 #SBATCH -p long
 #SBATCH --gres=gpu:1
+###SBATCH --exclusive
 #SBATCH -t 30:00
 #SBATCH -o %j-psize-${psize}-ngen-${ngen}-1-gpu.out
 #SBATCH -e %j-psize-${psize}-ngen-${ngen}-1-gpu.err

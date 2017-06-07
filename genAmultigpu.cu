@@ -494,17 +494,17 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   parameters.deviceParameters[gpuDevice].scores_d=parameters.deviceParameters[gpuDevice].rands_d+parameters.nRands;
   parameters.deviceParameters[gpuDevice].areas_d=parameters.deviceParameters[gpuDevice].scores_d+(parameters.N<<1);
   parameters.deviceParameters[gpuDevice].xx_d=parameters.deviceParameters[gpuDevice].areas_d+(parameters.N<<1);
-  parameters.scores=(float *)malloc(sizeof(*parameters.scores)*(parameters.N*maxGpuDevices);
+  parameters.scores=(float *)malloc(sizeof(*parameters.scores)*parameters.N);
   parameters.deviceParameters[gpuDevice].scores_ds[0]=parameters.deviceParameters[gpuDevice].scores_d;
   parameters.deviceParameters[gpuDevice].scores_ds[1]=parameters.deviceParameters[gpuDevice].scores_d+parameters.N;
 
-  parameters.Vs=(float *)malloc((parameters.N*maxGpuDevices)*parameters.genomeSize*sizeof(float));
+  parameters.Vs=(float *)malloc((parameters.N)*parameters.genomeSize*sizeof(float));
   /*allocate the memory space to hold array of pointers (prts) of size N (2*pSize)
   these pointers point to the individuals (chromosome) in the population */
-  parameters.ptrs=(int *)malloc(sizeof(int)*(parameters.N*maxGpuDevices));
+  parameters.ptrs=(int *)malloc(sizeof(int)*(parameters.N));
   parameters.ptrs[0]=0;
   for (int g=1;g<parameters.N;g++)parameters.ptrs[g]=parameters.ptrs[g-1]+parameters.genomeSize;
-0  error = cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].ptrs_d, parameters.N*2*sizeof(int));
+  error = cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].ptrs_d, parameters.N*2*sizeof(int));
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
   parameters.deviceParameters[gpuDevice].ptrs_ds[0]=parameters.deviceParameters[gpuDevice].ptrs_d;
   parameters.deviceParameters[gpuDevice].ptrs_ds[1]=parameters.deviceParameters[gpuDevice].ptrs_d+parameters.N;
@@ -542,16 +542,7 @@ void CopyArrays(int gpuDevice, Parameters &parameters) {
 }
 
 
-void CheckEqual(float *arraya, float *arrayb, float* arrayc, const int N) {
-//arrayb - arraya
-for (int i=0;i<N;i++){
-  float diff
-  diff=arraya[i]-arrayb[i]
-  diff2=diff*diff
-  sumdiff+=diff2
-  }
- std::out<<sumdiff<<std::endl;
-} 
+ 
 /**************************| Create a random generator |********************************************
 * curandCreateGenerator takes two parameters: pointer to generator (*gen), type of generator       *
 Once created,random number generators can be defined using the general options seed, offset,& order*
@@ -605,6 +596,8 @@ void
 ScoreInitialChromsomes(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
 
+  cudaSetDevice(gpuDevice);
+
   /* lauch first kernel to score the initial set of chromsomes (Vs_d) and output scores in scores_ds
     betweem the triple chervon is called the execution configuration that takes two parts
     1st part takes the number of thread blocks and the second part take the number of threads in a block */
@@ -657,6 +650,8 @@ ScoreInitialChromsomes(int gpuDevice, Parameters &parameters) {
 
 void EvolveGenerations(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
+
+  cudaSetDevice(gpuDevice);
 
   /* for loop for the generation */
   for (int currentGeneration=0; currentGeneration<parameters.nGen; currentGeneration++) {
@@ -791,6 +786,25 @@ void EvolveGenerations(int gpuDevice, Parameters &parameters) {
   } // here the loop for generations ends
 }
 
+float ComputeDiff(const float *arrayA, const float *arrayB, const int N) {
+//arrayb - arraya
+  float diff, sumdiff = 0.0f;
+
+  for (int i=0;i<N;i++) {
+    diff = arrayA[i]-arrayB[i];
+    diff *= diff;
+    sumdiff += diff;
+  }
+
+  return sumdiff;
+}
+
+void CheckError(int gpuDevice, Parameters &parameters) {
+  cudaSetDevice(gpuDevice);
+
+  cudaMemcpy(parameters.scores, parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(float)*parameters.N, cudaMemcpyDeviceToHost);
+}
+
 int
 main(int argc, char *argv[]) {
   Parameters parameters;
@@ -817,10 +831,8 @@ main(int argc, char *argv[]) {
     LoadAmplitudeParameters(device, parameters);
   
   for (int device = 0; device < maxGpuDevices; device++) {
-    cudaMemcpy(Vs+(device*N), parameters.deviceParameters[gpuDevice].Vs_d, sizeof(float)*genomeSize*N, cudaMemcpyDeviceToHost);
-    cudaMemcpy(ptrs+(device*N), parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(int)*N, cudaMemcpyDeviceToHost);
-  
-    cudaMemcpy(scores+(device*N), parameter.deviceParameter[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(float)*N, cudaMemcpyDeviceToHost);
+    CheckError(device, parameters);
+    std::cout << "Device " << device << " " << parameters.scores[0] << std::endl;
   }
   return 0;
 }

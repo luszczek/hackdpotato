@@ -481,13 +481,14 @@ int main(int argc, char *argv[]){
   float *rands_d, *Vs_d, *tset_d, *tgts_d, *wts_d, *xx_d, *scores_d, *areas_d;
   
 /*specify the string of the savefile, scorefile, loadfile name */
-  std::string saveFile,loadFile,scoreFile;
+  std::string saveFile,loadFile,scoreFile,scoreTest;
 /* dealing with loading the input file and save file string name */
   for (int i=2;i<argc;i++){
     if(i+1<argc){
       if(argv[i][0]=='-'&&argv[i][1]=='r')saveFile=argv[++i];
       else if(argv[i][0]=='-'&&argv[i][1]=='c')loadFile=argv[++i];
       else if(argv[i][0]=='-'&&argv[i][1]=='s')scoreFile=argv[++i];
+      else if(argv[i][0]=='-'&&argv[i][1]=='f')scoreTest=argv[++i];
     }
   }
 
@@ -878,15 +879,22 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
   cudaMemcpy(Vs, Vs_d, sizeof(float)*genomeSize*N, cudaMemcpyDeviceToHost);
   cudaMemcpy(ptrs, ptrs_ds[curList], sizeof(int)*N, cudaMemcpyDeviceToHost);
   cudaMemcpy(scores, scores_ds[curList], sizeof(float)*N, cudaMemcpyDeviceToHost);
+  
+  std::ofstream scoretest;
+  scoretest.open (scoreTest.c_str(), ios::out | ios::trunc);
+  //scoretest << "#Generation" << std::setw(14) << "Chromosomes" << std::setw(12) << "Scores\n";
 
   for(int i=0;i<pSize;i++){
 /* these are the final scores for each individual in the population, print in the output file  */
-  std::cout << std::fixed << scores[i] << std::endl;
+  //scoretest << std::setw(14) << i << std::setw(18) << scores[i] << "\n";
+  scoretest  << std::setw(8) << scores[i] << "\n";
+  //std::cout << std::fixed << scores[i] << std::endl;
 
   for(std::map<std::string,DihCorrection>::iterator it=correctionMap.begin(); it!=correctionMap.end(); ++it){
 /* second.setGenome(Vs+ptrs[i]) is the dihedral parameters for each individual in the population 
    print in the output file                                                                     */
-    std::cout << it->second.setGenome(Vs+ptrs[i]);
+    //std::cout << it->second.setGenome(Vs+ptrs[i]);
+   scoretest  << std::setw(11) << it->second.setGenome(Vs+ptrs[i]);
   }
   }
   if(!saveFile.empty()){
@@ -894,7 +902,7 @@ thrust::sort_by_key(thrust::device_pointer_cast(scores_ds[curList]+save), thrust
     for(int i=0;i<pSize;i++)
       saveS.write((char *)(Vs+ptrs[i]),genomeSize*sizeof(*Vs));
   }
-
+  scoretest.close();
   cudaEventSynchronize(events[nevents-1]);
 
   float elapsedTimeInit, elapsedTimeCompute;

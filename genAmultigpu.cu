@@ -809,7 +809,10 @@ int
 main(int argc, char *argv[]) {
   Parameters parameters;
   std::map<std::string,DihCorrection> correctionMap;
-  int maxGpuDevices = 2;
+  
+  int deviceCount; 
+  cudaGetDeviceCount(&deviceCount); 
+  int maxGpuDevices = deviceCount;
 
   ParseArgs(argc, argv, parameters);
 
@@ -833,6 +836,7 @@ main(int argc, char *argv[]) {
   for (int device = 0; device < maxGpuDevices; device++)
     ScoreInitialChromsomes(device, parameters);
 
+  #pragma omp parallel for
   for (int device = 0; device < maxGpuDevices; device++)
     EvolveGenerations(device, parameters);
 

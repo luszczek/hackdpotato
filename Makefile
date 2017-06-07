@@ -6,10 +6,10 @@ CFLAGS_GPROF = -Xcompiler "-g -pg"
 # CC = nvcc
 CC = nvcc
 CXX = nvcc
-CFLAGS = -arch=sm_20 #$(CFLAGS_GPROF)  #$(CFLAGS_DEBUG)
+CFLAGS = -arch=sm_20 -Xcompiler -fopenmp #$(CFLAGS_GPROF)  #$(CFLAGS_DEBUG)
 
 LDFLAGS = -G -g
-LIBS = -lcurand
+LIBS = -lcurand -lgomp
 
 all: genA genAmultigpu
 

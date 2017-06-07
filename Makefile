@@ -14,8 +14,8 @@ LIBS = -lcurand
 .PHONY: all
 all: genA
 
-genA: genA.cu
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LIBS)
+genA: genA.cu parse.o 
+	$(CC) $(CFLAGS) $< parse.o -o $@ $(LDFLAGS) $(LIBS)
 
 genAmultigpu: genAmultigpu.o load.o parse.o
 	$(CC) $(LDFLAGS) $< load.o parse.o -o $@ $(LIBS)

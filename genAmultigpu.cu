@@ -538,10 +538,15 @@ void CopyArrays(int gpuDevice, Parameters &parameters) {
 }
 
 
-void CheckEqual(float *arraya, float *arrayb) {
-//sum scores in both arrays
-
-//
+void CheckEqual(float *arraya, float *arrayb, float* arrayc, const int N) {
+//arrayb - arraya
+for (int i=0;i<N;i++){
+  float diff
+  diff=arraya[i]-arrayb[i]
+  diff2=diff*diff
+  sumdiff+=diff2
+  }
+ std::out<<sumdiff<<std::endl;
 } 
 /**************************| Create a random generator |********************************************
 * curandCreateGenerator takes two parameters: pointer to generator (*gen), type of generator       *

@@ -1,6 +1,10 @@
 
+#include <fstream>
 #include <iostream>
 #include <map>
+
+#include <cuda.h>
+#include <curand.h>
 
 #include "load.hpp"
 #include "parse.hpp"
@@ -11,9 +15,11 @@
 /* specifying # of threads for a given block, 256 block threads (index 0 to 255) */
 const int BLOCK_SIZE=256;
 
-struct DevicePointers {
+struct DeviceParameters {
+  int curList;
   int *ptrs_d, *breaks_d;
   float *rands_d, *Vs_d, *tset_d, *tgts_d, *wts_d, *xx_d, *scores_d, *areas_d;
+  curandGenerator_t gen;
 };
 
 struct Parameters {
@@ -26,6 +32,9 @@ struct Parameters {
   int peng; // "Print scores every  " << peng << "generations (peng)\n\n";
   int ncp; // "Print scores of only " << ncp << " chromosomes every peng \n\n";
 
+  /*specify the string of the savefile, scorefile, loadfile name */
+  std::string saveFile,loadFile,scoreFile;
+
 /* Hardcoding these input but we will make user options 
   nisland is the number of subpopulation, iTime is the isolation time, nMig is the number of
   migrants added to migrant pool. nEx number of exchange btwn migrant pool and subpop */
@@ -36,7 +45,7 @@ struct Parameters {
   int *ptrs, *breaks, nBreaks;
   size_t nRands; 
   
-  DevicePointers devicePointers[MAX_SUPPORTED_GPUS];
+  DeviceParameters deviceParameters[MAX_SUPPORTED_GPUS];
 };
 
 void ParseArgs(int argc, char *argv[], Parameters &parameters) {
@@ -66,15 +75,12 @@ void ParseArgs(int argc, char *argv[], Parameters &parameters) {
   parameters.ncp  = cfg.getValueOfKey<int>("ncp", 1);
   std::cout << "Print scores of only " << parameters.ncp << " chromosomes every peng \n\n";
 
-  /*specify the string of the savefile, scorefile, loadfile name */
-  std::string saveFile,loadFile,scoreFile;
-
   /* dealing with loading the input file and save file string name */
   for (int i=2;i<argc;i++){
     if(i+1<argc){
-      if(argv[i][0]=='-'&&argv[i][1]=='r')saveFile=argv[++i];
-      else if(argv[i][0]=='-'&&argv[i][1]=='c')loadFile=argv[++i];
-      else if(argv[i][0]=='-'&&argv[i][1]=='s')scoreFile=argv[++i];
+      if(argv[i][0]=='-'&&argv[i][1]=='r')parameters.saveFile=argv[++i];
+      else if(argv[i][0]=='-'&&argv[i][1]=='c')parameters.loadFile=argv[++i];
+      else if(argv[i][0]=='-'&&argv[i][1]=='s')parameters.scoreFile=argv[++i];
     }
   }
 
@@ -96,10 +102,10 @@ void LoadParameters(Parameters &parameters, std::map<std::string,DihCorrection> 
 void AllocateArrays(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
 
-  cudaMalloc((void **)&parameters.devicePointers[gpuDevice].breaks_d, parameters.nBreaks*sizeof(int));
-  cudaMalloc((void **)&parameters.devicePointers[gpuDevice].tgts_d, (parameters.nBreaks-1+parameters.nConf*(1+parameters.genomeSize))*sizeof(float));
-  parameters.devicePointers[gpuDevice].wts_d=parameters.devicePointers[gpuDevice].tgts_d+parameters.nConf;
-  parameters.devicePointers[gpuDevice].tset_d=parameters.devicePointers[gpuDevice].wts_d+parameters.nBreaks-1;
+  cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].breaks_d, parameters.nBreaks*sizeof(int));
+  cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].tgts_d, (parameters.nBreaks-1+parameters.nConf*(1+parameters.genomeSize))*sizeof(float));
+  parameters.deviceParameters[gpuDevice].wts_d=parameters.deviceParameters[gpuDevice].tgts_d+parameters.nConf;
+  parameters.deviceParameters[gpuDevice].tset_d=parameters.deviceParameters[gpuDevice].wts_d+parameters.nBreaks-1;
 
 /**********************| initiate GPU blocks and # of random variable |*************************** 
 *          we need randoms, new pop 3xcrossover, genomeSizexmut                                  *    
@@ -127,16 +133,16 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   float *rands=(float *)malloc(parameters.nRands*sizeof(float));
   //cudaMalloc((void **)&rands_d, nRands*sizeof(float));
   parameters.N=(parameters.pSize<<1);
-  error=cudaMalloc((void **)&parameters.devicePointers[gpuDevice].Vs_d, (parameters.N*(parameters.genomeSize+4)+parameters.pSize*parameters.nConf+parameters.nRands)*sizeof(float));
+  error=cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].Vs_d, (parameters.N*(parameters.genomeSize+4)+parameters.pSize*parameters.nConf+parameters.nRands)*sizeof(float));
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
-  parameters.devicePointers[gpuDevice].rands_d=parameters.devicePointers[gpuDevice].Vs_d+parameters.N*parameters.genomeSize;
-  parameters.devicePointers[gpuDevice].scores_d=parameters.devicePointers[gpuDevice].rands_d+parameters.nRands;
-  parameters.devicePointers[gpuDevice].areas_d=parameters.devicePointers[gpuDevice].scores_d+(parameters.N<<1);
-  parameters.devicePointers[gpuDevice].xx_d=parameters.devicePointers[gpuDevice].areas_d+(parameters.N<<1);
+  parameters.deviceParameters[gpuDevice].rands_d=parameters.deviceParameters[gpuDevice].Vs_d+parameters.N*parameters.genomeSize;
+  parameters.deviceParameters[gpuDevice].scores_d=parameters.deviceParameters[gpuDevice].rands_d+parameters.nRands;
+  parameters.deviceParameters[gpuDevice].areas_d=parameters.deviceParameters[gpuDevice].scores_d+(parameters.N<<1);
+  parameters.deviceParameters[gpuDevice].xx_d=parameters.deviceParameters[gpuDevice].areas_d+(parameters.N<<1);
   parameters.scores=(float *)malloc(sizeof(*parameters.scores)*parameters.N);
   float *scores_ds[2];
-  scores_ds[0]=parameters.devicePointers[gpuDevice].scores_d;
-  scores_ds[1]=parameters.devicePointers[gpuDevice].scores_d+parameters.N;
+  scores_ds[0]=parameters.deviceParameters[gpuDevice].scores_d;
+  scores_ds[1]=parameters.deviceParameters[gpuDevice].scores_d+parameters.N;
 
   parameters.Vs=(float *)malloc(parameters.N*parameters.genomeSize*sizeof(float));
   /*allocate the memory space to hold array of pointers (prts) of size N (2*pSize)
@@ -144,16 +150,13 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   parameters.ptrs=(int *)malloc(sizeof(int)*parameters.N);
   parameters.ptrs[0]=0;
   for (int g=1;g<parameters.N;g++)parameters.ptrs[g]=parameters.ptrs[g-1]+parameters.genomeSize;
-  error = cudaMalloc((void **)&parameters.devicePointers[gpuDevice].ptrs_d, parameters.N*2*sizeof(int));
+  error = cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].ptrs_d, parameters.N*2*sizeof(int));
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
   int *ptrs_ds[2];
-  ptrs_ds[0]=parameters.devicePointers[gpuDevice].ptrs_d;
-  ptrs_ds[1]=parameters.devicePointers[gpuDevice].ptrs_d+parameters.N;
+  ptrs_ds[0]=parameters.deviceParameters[gpuDevice].ptrs_d;
+  ptrs_ds[1]=parameters.deviceParameters[gpuDevice].ptrs_d+parameters.N;
 }
 
-
-void CopyArrays(int gpuDevice, Parameters &parameters) {
-  cudaError_t error;
 
 /* 
 copying over the arrays from the CPU to GPU
@@ -164,21 +167,64 @@ tset is (E_QMi-E_MMi) + (E_MMref-E_QMref) for each conformation, which = nconf, 
 tgts is the cos(dih*periodicity) for 4 periodicity for a dihedral for each conformation
 so 20 conf will give tgts of 20 (nconf) * 12 (# of dih * periodicity) = 120 
 */
+void CopyArrays(int gpuDevice, Parameters &parameters) {
+  cudaError_t error;
 
-  error = cudaMemcpy(parameters.devicePointers[gpuDevice].breaks_d, parameters.breaks, parameters.nBreaks*sizeof(parameters.breaks[0]), cudaMemcpyHostToDevice);
+  error = cudaMemcpy(parameters.deviceParameters[gpuDevice].breaks_d, parameters.breaks, parameters.nBreaks*sizeof(parameters.breaks[0]), cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 
-  error = cudaMemcpy(parameters.devicePointers[gpuDevice].tset_d, parameters.tset, parameters.nConf*parameters.genomeSize*sizeof(float), cudaMemcpyHostToDevice);
+  error = cudaMemcpy(parameters.deviceParameters[gpuDevice].tset_d, parameters.tset, parameters.nConf*parameters.genomeSize*sizeof(float), cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 
-  error = cudaMemcpy(parameters.devicePointers[gpuDevice].tgts_d, parameters.tgts, parameters.nConf*sizeof(float), cudaMemcpyHostToDevice);
+  error = cudaMemcpy(parameters.deviceParameters[gpuDevice].tgts_d, parameters.tgts, parameters.nConf*sizeof(float), cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 
-  error = cudaMemcpy(parameters.devicePointers[gpuDevice].wts_d, parameters.wts, (parameters.nBreaks-1)*sizeof(*parameters.wts), cudaMemcpyHostToDevice);
+  error = cudaMemcpy(parameters.deviceParameters[gpuDevice].wts_d, parameters.wts, (parameters.nBreaks-1)*sizeof(*parameters.wts), cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 
-  error = cudaMemcpy(parameters.devicePointers[gpuDevice].ptrs_d, parameters.ptrs, sizeof(int)*parameters.N, cudaMemcpyHostToDevice);
+  error = cudaMemcpy(parameters.deviceParameters[gpuDevice].ptrs_d, parameters.ptrs, sizeof(int)*parameters.N, cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
+}
+
+/**************************| Create a random generator |********************************************
+* curandCreateGenerator takes two parameters: pointer to generator (*gen), type of generator       *
+Once created,random number generators can be defined using the general options seed, offset,& order*
+When rng_type is CURAND_RNG_PSEUDO_DEFAULT, the type chosen is CURAND_RNG_PSEUDO_XORWOW            *
+*__________________________________________________________________________________________________*
+*curandSetPseudoRandomGeneratorSeed takes two parameters (1) the generator (gen) & (2) seed value  *
+* seed value # is used to initialize the generator and control the set of random numbers;          *
+* same seed will the give same set of random numbers of the psuedorandom generator                 *
+* rseed is the random number specified from the 6th input)                                         *
+*__________________________________________________________________________________________________*
+*    curandGenerateNormal take 5 parameters:                                                       * 
+*  (1) generator - Generator to use                                                                *
+*  (2) outputPtr - Pointer to device memory to store CUDA-generated results,                       *
+                or Pointer to host memory to store CPU-generated resluts                           *
+*  (3) num - Number of floats to generate                                                          *
+*  (4) mean - Mean of normal distribution                                                          *
+*  (5) stddev - Standard deviation of normal distribution                                          *
+* Results are 32-bit floating point values with mean and standard deviation.                       * 
+***************************************************************************************************/
+void GenerateRandom(int gpuDevice, Parameters &parameters) {
+  cudaError_t error;
+
+  curandCreateGenerator(&parameters.deviceParameters[gpuDevice].gen, CURAND_RNG_PSEUDO_DEFAULT);
+
+  // initiate the generator with the random seed (rseed)
+  curandSetPseudoRandomGeneratorSeed(parameters.deviceParameters[gpuDevice].gen, parameters.rseed);
+  if((error=cudaGetLastError())!=cudaSuccess){fprintf(stderr, "Cuda error: %s (normal)\n", cudaGetErrorString(error));}
+
+  curandGenerateNormal(parameters.deviceParameters[gpuDevice].gen, parameters.deviceParameters[gpuDevice].Vs_d, parameters.N*parameters.genomeSize, 0, 1);
+  if((error=cudaGetLastError())!=cudaSuccess){fprintf(stderr, "Cuda error: %s (normal)\n", cudaGetErrorString(error));}
+}
+
+void LoadAmplitudeParameters(int gpuDevice, Parameters &parameters) {
+  // if we have a load file copy Vs (amplitude parameters) from the loaded file and populate Vs
+  if(!parameters.loadFile.empty()) {
+    std::ifstream loadS(parameters.loadFile.c_str(), std::ios::in | std::ios::binary);
+    loadS.read((char*)parameters.Vs,parameters.pSize*parameters.genomeSize*sizeof(*parameters.Vs));
+    cudaMemcpy(parameters.deviceParameters[gpuDevice].Vs_d, parameters.Vs, parameters.pSize*parameters.genomeSize*sizeof(*parameters.Vs), cudaMemcpyHostToDevice);
+  }
 }
 
 int
@@ -192,13 +238,19 @@ main(int argc, char *argv[]) {
   LoadParameters(parameters, correctionMap);
 
   for (int device = 0; device < maxGpuDevices; device++)
+    parameters.deviceParameters[device].curList=0;
+
+  for (int device = 0; device < maxGpuDevices; device++)
     AllocateArrays(device, parameters);
 
   for (int device = 0; device < maxGpuDevices; device++)
     CopyArrays(device, parameters);
-    curandCreateGenerator(&gen, CURAND_RNG_PSEUDO_DEFAULT);
-    curandGenerateNormal(gen, Vs_d, N*genomeSize, 0, 1);
 
+  for (int device = 0; device < maxGpuDevices; device++)
+    GenerateRandom(device, parameters);
+
+  for (int device = 0; device < maxGpuDevices; device++)
+    LoadAmplitudeParameters(device, parameters);
 
   return 0;
 }

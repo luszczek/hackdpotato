@@ -11,8 +11,7 @@ CFLAGS = -arch=sm_20 #$(CFLAGS_GPROF)  #$(CFLAGS_DEBUG)
 LDFLAGS = -G -g
 LIBS = -lcurand
 
-.PHONY: all
-all: genA
+all: genA genAmultigpu
 
 genA: genA.cu parse.o 
 	$(CC) $(CFLAGS) $< parse.o -o $@ $(LDFLAGS) $(LIBS)
@@ -23,6 +22,7 @@ genAmultigpu: genAmultigpu.o load.o parse.o
 genAmultigpu.o: genAmultigpu.cu
 	$(CC) $(CFLAGS) -c $< -o $@
 
-.PHONY: clean
 clean:
 	rm -f *.o genA parmfile.* scores.*.dat *scorep_init.c try.*.frcmod
+
+.PHONY: clean all

@@ -455,6 +455,8 @@ void LoadParameters(Parameters &parameters, std::map<std::string,DihCorrection> 
 void AllocateArrays(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
 
+  cudaSetDevice(gpuDevice);
+
   cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].breaks_d, parameters.nBreaks*sizeof(int));
   cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].tgts_d, (parameters.nBreaks-1+parameters.nConf*(1+parameters.genomeSize))*sizeof(float));
   parameters.deviceParameters[gpuDevice].wts_d=parameters.deviceParameters[gpuDevice].tgts_d+parameters.nConf;
@@ -521,6 +523,8 @@ so 20 conf will give tgts of 20 (nconf) * 12 (# of dih * periodicity) = 120
 void CopyArrays(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
 
+  cudaSetDevice(gpuDevice);
+
   error = cudaMemcpy(parameters.deviceParameters[gpuDevice].breaks_d, parameters.breaks, parameters.nBreaks*sizeof(parameters.breaks[0]), cudaMemcpyHostToDevice);
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 
@@ -570,6 +574,8 @@ When rng_type is CURAND_RNG_PSEUDO_DEFAULT, the type chosen is CURAND_RNG_PSEUDO
 void GenerateRandom(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
 
+  cudaSetDevice(gpuDevice);
+
   curandCreateGenerator(&parameters.deviceParameters[gpuDevice].gen, CURAND_RNG_PSEUDO_DEFAULT);
 
   // initiate the generator with the random seed (rseed)
@@ -581,6 +587,9 @@ void GenerateRandom(int gpuDevice, Parameters &parameters) {
 }
 
 void LoadAmplitudeParameters(int gpuDevice, Parameters &parameters) {
+
+  cudaSetDevice(gpuDevice);
+
   // if we have a load file copy Vs (amplitude parameters) from the loaded file and populate Vs
   if(!parameters.loadFile.empty()) {
     std::ifstream loadS(parameters.loadFile.c_str(), std::ios::in | std::ios::binary);

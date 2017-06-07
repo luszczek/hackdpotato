@@ -223,17 +223,17 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   parameters.deviceParameters[gpuDevice].scores_d=parameters.deviceParameters[gpuDevice].rands_d+parameters.nRands;
   parameters.deviceParameters[gpuDevice].areas_d=parameters.deviceParameters[gpuDevice].scores_d+(parameters.N<<1);
   parameters.deviceParameters[gpuDevice].xx_d=parameters.deviceParameters[gpuDevice].areas_d+(parameters.N<<1);
-  parameters.scores=(float *)malloc(sizeof(*parameters.scores)*parameters.N);
+  parameters.scores=(float *)malloc(sizeof(*parameters.scores)*(parameters.N*maxGpuDevices);
   parameters.deviceParameters[gpuDevice].scores_ds[0]=parameters.deviceParameters[gpuDevice].scores_d;
   parameters.deviceParameters[gpuDevice].scores_ds[1]=parameters.deviceParameters[gpuDevice].scores_d+parameters.N;
 
-  parameters.Vs=(float *)malloc(parameters.N*parameters.genomeSize*sizeof(float));
+  parameters.Vs=(float *)malloc((parameters.N*maxGpuDevices)*parameters.genomeSize*sizeof(float));
   /*allocate the memory space to hold array of pointers (prts) of size N (2*pSize)
   these pointers point to the individuals (chromosome) in the population */
-  parameters.ptrs=(int *)malloc(sizeof(int)*parameters.N);
+  parameters.ptrs=(int *)malloc(sizeof(int)*(parameters.N*maxGpuDevices));
   parameters.ptrs[0]=0;
   for (int g=1;g<parameters.N;g++)parameters.ptrs[g]=parameters.ptrs[g-1]+parameters.genomeSize;
-  error = cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].ptrs_d, parameters.N*2*sizeof(int));
+0  error = cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].ptrs_d, parameters.N*2*sizeof(int));
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
   parameters.deviceParameters[gpuDevice].ptrs_ds[0]=parameters.deviceParameters[gpuDevice].ptrs_d;
   parameters.deviceParameters[gpuDevice].ptrs_ds[1]=parameters.deviceParameters[gpuDevice].ptrs_d+parameters.N;
@@ -268,6 +268,12 @@ void CopyArrays(int gpuDevice, Parameters &parameters) {
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
 }
 
+
+void CheckEqual(float *arraya, float *arrayb) {
+//sum scores in both arrays
+
+//
+} 
 /**************************| Create a random generator |********************************************
 * curandCreateGenerator takes two parameters: pointer to generator (*gen), type of generator       *
 Once created,random number generators can be defined using the general options seed, offset,& order*
@@ -384,6 +390,12 @@ main(int argc, char *argv[]) {
 
   for (int device = 0; device < maxGpuDevices; device++)
     LoadAmplitudeParameters(device, parameters);
-
+  
+  for (int device = 0; device < maxGpuDevices; device++) {
+    cudaMemcpy(Vs+(device*N), parameters.deviceParameters[gpuDevice].Vs_d, sizeof(float)*genomeSize*N, cudaMemcpyDeviceToHost);
+    cudaMemcpy(ptrs+(device*N), parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(int)*N, cudaMemcpyDeviceToHost);
+  
+    cudaMemcpy(scores+(device*N), parameter.deviceParameter[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(float)*N, cudaMemcpyDeviceToHost);
+  }
   return 0;
 }

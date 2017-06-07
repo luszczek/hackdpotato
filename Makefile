@@ -5,6 +5,7 @@ CFLAGS_DEBUG = -DDEBUG=3 -DTHRUST_DEBUG -G -g
 CFLAGS_GPROF = -Xcompiler "-g -pg"
 # CC = nvcc
 CC = nvcc
+CXX = nvcc
 CFLAGS = -arch=sm_20 #$(CFLAGS_GPROF)  #$(CFLAGS_DEBUG)
 
 LDFLAGS = -G -g
@@ -13,11 +14,11 @@ LIBS = -lcurand
 .PHONY: all
 all: genA
 
-genA: genA.cu
-	$(CC) $(CFLAGS) $< -o $@ $(LDFLAGS) $(LIBS)
+genA: genA.cu parse.o 
+	$(CC) $(CFLAGS) $< parse.o -o $@ $(LDFLAGS) $(LIBS)
 
-genAmultigpu: genAmultigpu.o load.o
-	$(CC) $(LDFLAGS) $< -o $@ $(LIBS)
+genAmultigpu: genAmultigpu.o load.o parse.o
+	$(CC) $(LDFLAGS) $< load.o parse.o -o $@ $(LIBS)
 
 genAmultigpu.o: genAmultigpu.cu
 	$(CC) $(CFLAGS) -c $< -o $@

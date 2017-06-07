@@ -32,7 +32,7 @@
 #include <list>
 #include <map>
 #include "load.cpp"
-#include "parse.cpp"
+#include "parse.hpp"
 using namespace std;
 
 /* specifying # of threads for a given block, 256 block threads (index 0 to 255) */

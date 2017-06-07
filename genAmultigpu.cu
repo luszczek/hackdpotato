@@ -830,6 +830,12 @@ main(int argc, char *argv[]) {
   for (int device = 0; device < maxGpuDevices; device++)
     LoadAmplitudeParameters(device, parameters);
   
+  for (int device = 0; device < maxGpuDevices; device++)
+    ScoreInitialChromsomes(device, parameters);
+
+  for (int device = 0; device < maxGpuDevices; device++)
+    EvolveGenerations(device, parameters);
+
   for (int device = 0; device < maxGpuDevices; device++) {
     CheckError(device, parameters);
     std::cout << "Device " << device << " " << parameters.scores[0] << std::endl;

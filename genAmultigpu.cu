@@ -6,6 +6,9 @@
 #include <cuda.h>
 #include <curand.h>
 
+#include <thrust/sort.h>
+#include <thrust/device_ptr.h>
+
 #include "load.hpp"
 #include "parse.hpp"
 
@@ -15,10 +18,91 @@
 /* specifying # of threads for a given block, 256 block threads (index 0 to 255) */
 const int BLOCK_SIZE=256;
 
+/************************************************************************************************
+                                | function 3: scoreIt | 
+
+ * @brief calculates a score indicating the closeness of fit for each individual/chromosome (set of parameters) against the training set
+
+ * @param scores score for each conformation, calculated here
+ * @param areas weighting for each conformation, was formerly calculated here
+ * @param Vs a global array of all the parent and child genomes
+ * @param ptrs array of pointers from logical indices to actual indices into Vs for each individual
+ * @param tset training set
+ * @param tgts targets for training
+ * @param wts weights of each point in the training set
+ * @param breaks breaks in training set, where different data should not be compared across breaks
+ * @param nConf number of conformations in training set
+ * @param pSize number of individuals in the population
+ * @param genomeSize number of genes in a genome
+ * @param xx space to store energy differences for each conformation with test parameters
+************************************************************************************************/
+
+__global__ void scoreIt(float *scores, float *areas, const float *Vs, const int *ptrs, const float *tset, const float *tgts, const float *wts, const int *breaks, const int nConf, const int pSize, const int genomeSize, float *xx)
+{
+  int i=blockIdx.x * blockDim.x + threadIdx.x;
+  //if((i<<1)<(pSize-1)*pSize){
+  if(i<pSize){
+  float *x=xx+i*nConf;  // for the error of each conformation
+  // get reference to score
+  float *S=scores+i;
+  // set score to 0
+  *S=0.0f;
+  // accumulate little s for each set
+  float s;
+  // get first index in genome
+  int i0=ptrs[i];
+  // get index of next genome space for looping bounds
+  int j=i0+genomeSize;
+  // start with the first element in the training set
+  int t=0;
+  /* start at break 0 */
+  int b=0;
+  /* loop over conformations c */
+  int c=0;
+  while(c<nConf){
+    //int nP=0;
+    s=0.0f;
+    /* loop only in units without break points */
+    while(c<breaks[b+1]){
+  /* 
+  start with delta E (tgts) for a given conformation (c) within a break; see load.cpp 
+  conf (c) goes through until it reach a break. the loop will set delta E 
+  */
+      x[c]=tgts[c];
+  /* 
+  subtract contributions from each parameter for conformation c 
+  for each conformation 
+  e.g deltaE - cos (dihedral * periodicity) * parameter generated from chromosomes
+  */
+      for(i=i0;i<j;i++,t++){
+        x[c]-=tset[t]*Vs[i];
+      }
+      /* add differences in this error from all other errors */
+      for(int c2=breaks[b];c2<c;c2++){
+        float err=x[c]-x[c2];
+        s+=(err<0.0f?-err:err);
+      }
+      /* next conformation */
+      ++c;
+    }
+    /* add little error to big error S, weighted by number of pairs */
+    *S+=s*wts[b];
+    /* go to next breakpoint */
+    ++b;
+  }
+#if DEBUG>1
+  printf("areas[%d]=%f\n",i0/genomeSize,areas[i0/genomeSize]);
+#endif
+  }
+}
+
+
 struct DeviceParameters {
   int curList;
   int *ptrs_d, *breaks_d;
   float *rands_d, *Vs_d, *tset_d, *tgts_d, *wts_d, *xx_d, *scores_d, *areas_d;
+  float *scores_ds[2];
+  int *ptrs_ds[2];
   curandGenerator_t gen;
 };
 
@@ -140,9 +224,8 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   parameters.deviceParameters[gpuDevice].areas_d=parameters.deviceParameters[gpuDevice].scores_d+(parameters.N<<1);
   parameters.deviceParameters[gpuDevice].xx_d=parameters.deviceParameters[gpuDevice].areas_d+(parameters.N<<1);
   parameters.scores=(float *)malloc(sizeof(*parameters.scores)*parameters.N);
-  float *scores_ds[2];
-  scores_ds[0]=parameters.deviceParameters[gpuDevice].scores_d;
-  scores_ds[1]=parameters.deviceParameters[gpuDevice].scores_d+parameters.N;
+  parameters.deviceParameters[gpuDevice].scores_ds[0]=parameters.deviceParameters[gpuDevice].scores_d;
+  parameters.deviceParameters[gpuDevice].scores_ds[1]=parameters.deviceParameters[gpuDevice].scores_d+parameters.N;
 
   parameters.Vs=(float *)malloc(parameters.N*parameters.genomeSize*sizeof(float));
   /*allocate the memory space to hold array of pointers (prts) of size N (2*pSize)
@@ -152,9 +235,8 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   for (int g=1;g<parameters.N;g++)parameters.ptrs[g]=parameters.ptrs[g-1]+parameters.genomeSize;
   error = cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].ptrs_d, parameters.N*2*sizeof(int));
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
-  int *ptrs_ds[2];
-  ptrs_ds[0]=parameters.deviceParameters[gpuDevice].ptrs_d;
-  ptrs_ds[1]=parameters.deviceParameters[gpuDevice].ptrs_d+parameters.N;
+  parameters.deviceParameters[gpuDevice].ptrs_ds[0]=parameters.deviceParameters[gpuDevice].ptrs_d;
+  parameters.deviceParameters[gpuDevice].ptrs_ds[1]=parameters.deviceParameters[gpuDevice].ptrs_d+parameters.N;
 }
 
 
@@ -225,6 +307,57 @@ void LoadAmplitudeParameters(int gpuDevice, Parameters &parameters) {
     loadS.read((char*)parameters.Vs,parameters.pSize*parameters.genomeSize*sizeof(*parameters.Vs));
     cudaMemcpy(parameters.deviceParameters[gpuDevice].Vs_d, parameters.Vs, parameters.pSize*parameters.genomeSize*sizeof(*parameters.Vs), cudaMemcpyHostToDevice);
   }
+}
+
+/***************************| score of the first set of chromosomes |*******************************
+* Here we score initial chromsomes                                                                 * 
+***************************************************************************************************/
+void
+ScoreInitialChromsomes(int gpuDevice, Parameters &parameters) {
+  cudaError_t error;
+
+  /* lauch first kernel to score the initial set of chromsomes (Vs_d) and output scores in scores_ds
+    betweem the triple chervon is called the execution configuration that takes two parts
+    1st part takes the number of thread blocks and the second part take the number of threads in a block */
+  scoreIt <<<(parameters.N+BLOCK_SIZE-1)/BLOCK_SIZE, BLOCK_SIZE>>> (
+    parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList],
+    parameters.deviceParameters[gpuDevice].areas_d,
+    parameters.deviceParameters[gpuDevice].Vs_d,
+    parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList],
+    parameters.deviceParameters[gpuDevice].tset_d,
+    parameters.deviceParameters[gpuDevice].tgts_d,
+    parameters.deviceParameters[gpuDevice].wts_d,
+    parameters.deviceParameters[gpuDevice].breaks_d,
+    parameters.nConf,
+    parameters.pSize,
+    parameters.genomeSize,
+    parameters.deviceParameters[gpuDevice].xx_d
+  );
+
+  /* score of chromosomes out of psize since we initiated 2 times psize */
+  scoreIt <<<(parameters.N+BLOCK_SIZE-1)/BLOCK_SIZE, BLOCK_SIZE>>> (
+      parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList]+parameters.pSize,
+      parameters.deviceParameters[gpuDevice].areas_d,
+      parameters.deviceParameters[gpuDevice].Vs_d,
+      parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList]+parameters.pSize,
+      parameters.deviceParameters[gpuDevice].tset_d,
+      parameters.deviceParameters[gpuDevice].tgts_d,
+      parameters.deviceParameters[gpuDevice].wts_d,
+      parameters.deviceParameters[gpuDevice].breaks_d,
+      parameters.nConf,
+      parameters.pSize,
+      parameters.genomeSize,
+      parameters.deviceParameters[gpuDevice].xx_d);
+
+   if((error=cudaGetLastError())!=cudaSuccess){fprintf(stderr, "Cuda error: %s (1stscore)\n", cudaGetErrorString(error));}
+
+   /* sort the scores from each chromosome of the initial population */
+  thrust::sort_by_key(
+    thrust::device_pointer_cast(parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList]),
+    thrust::device_pointer_cast(parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList]+parameters.N),
+    thrust::device_pointer_cast(parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList])
+  );
+  if((error=cudaGetLastError())!=cudaSuccess){fprintf(stderr, "Cuda error: %s (1stsort)\n", cudaGetErrorString(error));}
 }
 
 int

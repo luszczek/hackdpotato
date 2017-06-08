@@ -464,10 +464,6 @@ int main(int argc, char *argv[]){
   int ncp  = cfg.getValueOfKey<int>("ncp", 1);
   std::cout << "Print scores of only " << ncp << " chromosomes every peng \n\n";
 
-/* Hardcoding these input but we will make user options 
-  nisland is the number of subpopulation, iTime is the isolation time, nMig is the number of
-  migrants added to migrant pool. nEx number of exchange btwn migrant pool and subpop */
-  int nIsland, iTime, nMig, nEx;
 
 /* initializing CPU variables and arrays */
   int genomeSize, g, N, nConf=0, save=pSize/10;

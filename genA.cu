@@ -133,13 +133,28 @@ find parent where cumulative (cum) area (A) is less than random target (tgt) are
     if(rands[randi]<pCross){
       crossPt=i0+1+(int)(rands[randi]/pCross*(float)(genomeSize-1));
     }
-    while(i0<crossPt){
+    //int halfcpt=genomeSize/2;
+    //if (crossPt < halfcpt){
+      //while(i0<crossPt){
+        //Vs[i0]=Vs[parent[1]+i0];
+        //Vs[i1+i0]=Vs[parent[0]+i0];
+      //}
+    //}
+    //else {
+      //while(i0>=crossPt){
+        //Vs[i0]=Vs[parent[1]+i0];
+        //Vs[i1+i0]=Vs[parent[0]+i0];
+      //}
+    //}
+    //while(i0<crossPt){
     /* load next bit from parent and increment i */
-      Vs[i0]=Vs[parent[0]+i0];
-      Vs[i1+i0]=Vs[parent[1]+i0];
-      ++i0;
-    }
-    while(i0<j){
+      //Vs[i0]=Vs[parent[0]+i0];
+      //Vs[i1+i0]=Vs[parent[1]+i0];
+      //++i0;
+    //}
+    //while(i0>=crossPt && i0<j){
+    i0=crossPt;
+    for(i0;i0<j;i0++){
       Vs[i0]=Vs[parent[1]+i0];
       Vs[i1+i0]=Vs[parent[0]+i0];
       ++i0;

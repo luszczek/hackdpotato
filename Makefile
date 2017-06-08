@@ -14,7 +14,7 @@ LIBS = -lcurand -lgomp
 all: genA genAmultigpu
 
 genA: genA.cu parse.o 
-	$(CC) $(CFLAGS) $< parse.o -o $@ $(LDFLAGS) $(LIBS)
+	$(CC) $(CFLAGS) $< parse.o -o $@ $(LIBS)
 
 genAmultigpu: genAmultigpu.o load.o parse.o
 	$(CC) $(LDFLAGS) $< load.o parse.o -o $@ $(LIBS)

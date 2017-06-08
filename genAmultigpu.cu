@@ -387,13 +387,14 @@ struct Parameters {
 /* Hardcoding these input but we will make user options 
   nisland is the number of subpopulation, iTime is the isolation time, nMig is the number of
   migrants added to migrant pool. nEx number of exchange btwn migrant pool and subpop */
-  int nIsland, iTime, nMig, nEx;
+  int nIsland, iTime, nEx;
+  int exchrate;
 
   int genomeSize, nConf, N, save;
-  float *Vs, *tset, *tgts, *wts, *scores; 
+  float *Vs, *tset, *tgts, *wts, *scores, *migrants; 
   int *ptrs, *breaks, nBreaks;
   size_t nRands; 
-  
+  int maxGpuDevices; 
   int nBlocks;
 
   DeviceParameters deviceParameters[MAX_SUPPORTED_GPUS];
@@ -456,7 +457,8 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
 
   cudaSetDevice(gpuDevice);
-
+ 
+  
   cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].breaks_d, parameters.nBreaks*sizeof(int));
   cudaMalloc((void **)&parameters.deviceParameters[gpuDevice].tgts_d, (parameters.nBreaks-1+parameters.nConf*(1+parameters.genomeSize))*sizeof(float));
   parameters.deviceParameters[gpuDevice].wts_d=parameters.deviceParameters[gpuDevice].tgts_d+parameters.nConf;
@@ -498,6 +500,7 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   parameters.deviceParameters[gpuDevice].scores_ds[0]=parameters.deviceParameters[gpuDevice].scores_d;
   parameters.deviceParameters[gpuDevice].scores_ds[1]=parameters.deviceParameters[gpuDevice].scores_d+parameters.N;
 
+  
   parameters.Vs=(float *)malloc((parameters.N)*parameters.genomeSize*sizeof(float));
   /*allocate the memory space to hold array of pointers (prts) of size N (2*pSize)
   these pointers point to the individuals (chromosome) in the population */
@@ -508,8 +511,8 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   if(error!=cudaSuccess){fprintf(stderr, "Cuda error: %s\n", cudaGetErrorString(error));}
   parameters.deviceParameters[gpuDevice].ptrs_ds[0]=parameters.deviceParameters[gpuDevice].ptrs_d;
   parameters.deviceParameters[gpuDevice].ptrs_ds[1]=parameters.deviceParameters[gpuDevice].ptrs_d+parameters.N;
+  parameters.migrants=(float *)malloc(parameters.nEx*parameters.maxGpuDevices*parameters.genomeSize*sizeof(float));
 }
-
 
 /* 
 copying over the arrays from the CPU to GPU
@@ -805,42 +808,77 @@ void CheckError(int gpuDevice, Parameters &parameters) {
   cudaMemcpy(parameters.scores, parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(float)*parameters.N, cudaMemcpyDeviceToHost);
 }
 
-int
-main(int argc, char *argv[]) {
+
+void SelectMigrants (int gpuDevice, Parameters &parameters) {
+  cudaMemcpy(
+   &parameters.migrants[parameters.nEx*gpuDevice*parameters.genomeSize], 
+    &parameters.deviceParameters[gpuDevice].Vs_d[0], 
+      (parameters.nEx)*parameters.genomeSize*sizeof(*parameters.Vs), 
+        cudaMemcpyDeviceToHost);
+}
+
+int SpecialRandom(int gpuDevice, int maxGpuDevices) {
+   int temp= rand() % maxGpuDevices;
+   while (gpuDevice == temp) {  
+     temp = rand() % maxGpuDevices;
+  }
+return temp;
+}
+
+
+
+void Exchange (int gpuDevice, Parameters &parameters) {
+ for (int i=0;i<parameters.nEx;i++){
+   int otherGpu= SpecialRandom(gpuDevice, parameters.maxGpuDevices);
+   int indnEx = rand() % parameters.nEx; //random # range from 0 to nEx
+   cudaMemcpy(
+    &parameters.deviceParameters[gpuDevice].Vs_d[(parameters.pSize-parameters.nEx)+i], 
+     &parameters.migrants[(parameters.nEx*otherGpu+indnEx)*parameters.genomeSize], 
+      parameters.genomeSize*sizeof(*parameters.Vs), 
+       cudaMemcpyHostToDevice);
+ }
+} 
+
+int main(int argc, char *argv[]) {
   Parameters parameters;
   std::map<std::string,DihCorrection> correctionMap;
   
-  int deviceCount; 
+  int deviceCount=0; 
   cudaGetDeviceCount(&deviceCount); 
-  int maxGpuDevices = deviceCount;
+  parameters.maxGpuDevices = deviceCount;
 
   ParseArgs(argc, argv, parameters);
 
   LoadParameters(parameters, correctionMap);
 
-  for (int device = 0; device < maxGpuDevices; device++)
+  for (int device = 0; device < parameters.maxGpuDevices; device++)
     parameters.deviceParameters[device].curList=0;
 
-  for (int device = 0; device < maxGpuDevices; device++)
+  for (int device = 0; device < parameters.maxGpuDevices; device++)
     AllocateArrays(device, parameters);
 
-  for (int device = 0; device < maxGpuDevices; device++)
+  for (int device = 0; device < parameters.maxGpuDevices; device++)
     CopyArrays(device, parameters);
 
-  for (int device = 0; device < maxGpuDevices; device++)
+  for (int device = 0; device < parameters.maxGpuDevices; device++)
     GenerateRandom(device, parameters);
 
-  for (int device = 0; device < maxGpuDevices; device++)
+  for (int device = 0; device < parameters.maxGpuDevices; device++)
     LoadAmplitudeParameters(device, parameters);
   
-  for (int device = 0; device < maxGpuDevices; device++)
+  for (int device = 0; device < parameters.maxGpuDevices; device++)
     ScoreInitialChromsomes(device, parameters);
 
   #pragma omp parallel for
-  for (int device = 0; device < maxGpuDevices; device++)
+  for (int device = 0; device < parameters.maxGpuDevices; device++){
     EvolveGenerations(device, parameters);
-
-  for (int device = 0; device < maxGpuDevices; device++) {
+    SelectMigrants(device, parameters);
+  }
+  for (int device = 0; device < parameters.maxGpuDevices; device++){
+    Exchange(device, parameters);
+    EvolveGenerations(device, parameters);
+  }
+  for (int device = 0; device < parameters.maxGpuDevices; device++) {
     CheckError(device, parameters);
     std::cout << "Device " << device << " " << parameters.scores[0] << std::endl;
   }

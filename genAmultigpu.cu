@@ -358,10 +358,6 @@ number of thread blocks in the grid, and the second specifies (BLOCK_SIZE) the n
 
 
 
-
-
-
-
 struct DeviceParameters {
   int curList;
   int *ptrs_d, *breaks_d;
@@ -382,7 +378,7 @@ struct Parameters {
   int ncp; // "Print scores of only " << ncp << " chromosomes every peng \n\n";
 
   /*specify the string of the savefile, scorefile, loadfile name */
-  std::string saveFile,loadFile,scoreFile;
+  std::string saveFile,loadFile,scoreFile,scoreTest;
 
 /* Hardcoding these input but we will make user options 
   nisland is the number of subpopulation, iTime is the isolation time, nMig is the number of
@@ -426,8 +422,13 @@ void ParseArgs(int argc, char *argv[], Parameters &parameters) {
   std::cout << "Print scores every  " << parameters.peng << "generations (peng)\n\n";
   parameters.ncp  = cfg.getValueOfKey<int>("ncp", 1);
   std::cout << "Print scores of only " << parameters.ncp << " chromosomes every peng \n\n";
-
+  parameters.iTime  = cfg.getValueOfKey<int>("iTime", 1);
+  std::cout << "isolation time is " << parameters.iTime << "\n\n";
+  parameters.nEx  = cfg.getValueOfKey<int>("nEx", 1);
+  std::cout << "number of migrants to exchange is  " << parameters.nEx << "\n\n";
+  
   parameters.save=parameters.pSize/10; // 10% of the population
+  parameters.exchrate=parameters.nGen/parameters.iTime; //get the number of exchange
 
   /* dealing with loading the input file and save file string name */
   for (int i=2;i<argc;i++){
@@ -435,6 +436,7 @@ void ParseArgs(int argc, char *argv[], Parameters &parameters) {
       if(argv[i][0]=='-'&&argv[i][1]=='r')parameters.saveFile=argv[++i];
       else if(argv[i][0]=='-'&&argv[i][1]=='c')parameters.loadFile=argv[++i];
       else if(argv[i][0]=='-'&&argv[i][1]=='s')parameters.scoreFile=argv[++i];
+      else if(argv[i][0]=='-'&&argv[i][1]=='f')parameters.scoreTest=argv[++i];
     }
   }
 
@@ -599,6 +601,7 @@ void
 ScoreInitialChromsomes(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
 
+
   cudaSetDevice(gpuDevice);
 
   /* lauch first kernel to score the initial set of chromsomes (Vs_d) and output scores in scores_ds
@@ -657,7 +660,7 @@ void EvolveGenerations(int gpuDevice, Parameters &parameters) {
   cudaSetDevice(gpuDevice);
 
   /* for loop for the generation */
-  for (int currentGeneration=0; currentGeneration<parameters.nGen; currentGeneration++) {
+  for (int currentGeneration=0; currentGeneration<parameters.iTime; currentGeneration++) {
 
     /*************************| Step1: Generate random numbers |****************************************/
     
@@ -768,24 +771,18 @@ void EvolveGenerations(int gpuDevice, Parameters &parameters) {
     //if generation is divisable by peng
     if (currentGeneration % parameters.peng == 0) {
       std::ofstream scorefile;
-      scorefile.open (parameters.scoreFile.c_str(), std::ios::out | std::ios::app); //it append to the writeout so make sure u delete scores file
+      scorefile.open (parameters.scoreFile.c_str(), std::ios::out | std::ios::trunc); //it append to the writeout so make sure u delete scores file
       scorefile << "#Generation" << std::setw(14) << "Chromosomes" << std::setw(12) << "Scores\n";
       cudaMemcpy(parameters.scores, parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(*parameters.scores)*parameters.N, cudaMemcpyDeviceToHost);
-      //cudaMemcpy(Vs, Vs_d, sizeof(*Vs)*N*genomeSize, cudaMemcpyDeviceToHost);
-      //cudaMemcpy(ptrs, ptrs_ds[curList], sizeof(*ptrs)*N, cudaMemcpyDeviceToHost);
-
       if (parameters.ncp > parameters.pSize) {
       printf("Parmfile error: ncp should be smaller than psize! \n");
       std::abort();
       }
       for(int m = 0; m< parameters.ncp; m++){
         scorefile << std::setw(6) << currentGeneration << std::setw(14) << m << std::setw(18) << parameters.scores[m] << "\n";
-        //scorefile << "Score: " << scores[m] << "\n";
-        //for(std::map<std::string,DihCorrection>::iterator it=correctionMap.begin(); it!=correctionMap.end(); ++it)
       }
       scorefile.close();
     }
-
   } // here the loop for generations ends
 }
 
@@ -808,8 +805,32 @@ void CheckError(int gpuDevice, Parameters &parameters) {
   cudaMemcpy(parameters.scores, parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(float)*parameters.N, cudaMemcpyDeviceToHost);
 }
 
+void writeFrcmod(int gpuDevice, Parameters &parameters, std::map<std::string,DihCorrection> &correctionMap) {
+  cudaSetDevice(gpuDevice);
+
+  //copy over the best results from multiple GPUs to the CPU to save the scores and parameters */
+  cudaMemcpy(parameters.Vs, parameters.deviceParameters[gpuDevice].Vs_d, sizeof(float)*parameters.genomeSize*1, cudaMemcpyDeviceToHost);
+  cudaMemcpy(parameters.ptrs, parameters.deviceParameters[gpuDevice].ptrs_ds[0], sizeof(int)*1, cudaMemcpyDeviceToHost);
+  cudaMemcpy(parameters.scores, parameters.deviceParameters[gpuDevice].scores_ds[0], sizeof(float)*1, cudaMemcpyDeviceToHost);
+  
+  std::ofstream scoretest;
+  scoretest.open (parameters.scoreTest.c_str(), std::ios::out | std::ios::trunc);
+   
+  for(int i=0;i<1;i++){
+    
+    scoretest  << std::setw(8) << gpuDevice << "\n";
+    /* these are the final scores for each individual in the population, print in the output file  */
+    scoretest  << std::setw(8) << parameters.scores[i] << "\n";
+   
+   // for(std::map<std::string,DihCorrection>::iterator it=correctionMap.begin(); it!=correctionMap.end(); ++it){
+      /* second.setGenome(Vs+ptrs[i]) is the dihedral parameters for each individual in the population */ 
+    //  scoretest  << std::setw(11) << it->second.setGenome(parameters.Vs[i*parameters.genomeSize]);
+    }
+  scoretest.close();
+}
 
 void SelectMigrants (int gpuDevice, Parameters &parameters) {
+  cudaSetDevice(gpuDevice);
   cudaMemcpy(
    &parameters.migrants[parameters.nEx*gpuDevice*parameters.genomeSize], 
     &parameters.deviceParameters[gpuDevice].Vs_d[0], 
@@ -818,6 +839,7 @@ void SelectMigrants (int gpuDevice, Parameters &parameters) {
 }
 
 int SpecialRandom(int gpuDevice, int maxGpuDevices) {
+   cudaSetDevice(gpuDevice);
    int temp= rand() % maxGpuDevices;
    while (gpuDevice == temp) {  
      temp = rand() % maxGpuDevices;
@@ -828,6 +850,8 @@ return temp;
 
 
 void Exchange (int gpuDevice, Parameters &parameters) {
+
+ cudaSetDevice(gpuDevice);
  for (int i=0;i<parameters.nEx;i++){
    int otherGpu= SpecialRandom(gpuDevice, parameters.maxGpuDevices);
    int indnEx = rand() % parameters.nEx; //random # range from 0 to nEx

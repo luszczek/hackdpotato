@@ -3,7 +3,7 @@
 CFLAGS_DEBUG = -DDEBUG=3 -DTHRUST_DEBUG -G -g
 
 CFLAGS_GPROF = -Xcompiler "-g -pg"
-# CC = nvcc
+NVCC = nvcc
 CC = nvcc
 CXX = nvcc
 CFLAGS = -arch=sm_20 -Xcompiler -fopenmp #$(CFLAGS_GPROF)  #$(CFLAGS_DEBUG)
@@ -21,13 +21,20 @@ genAmultigpu: genAmultigpu.o load.o parse.o
 	$(CC) $(LDFLAGS) $< load.o parse.o -o $@ $(LIBS)
 
 genAmultigpu.o: genAmultigpu.cu
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(NVCC) $(CFLAGS) -c $< -o $@
+
+simple_query: simple_query.o
+	$(NVCC) $(CFLAGS) $(MPIFLAGS) $< -o $@
+
+simple_query.o: simple_query.cu
+	$(NVCC) $(CFLAGS) $(MPIFLAGS) -c $< -o $@
 
 test: test.o load.o parse.o
 	$(CC) $(MPIFLAGS) $(LDFLAGS) $< load.o parse.o -o $@ $(LIBS)
 
 test.o: test.cu
 	$(CC) $(MPIFLAGS) $(CFLAGS) -c $< -o $@
+
 clean:
 	rm -f *.o genA parmfile.* scores.*.dat *scorep_init.c try.*.frcmod
 

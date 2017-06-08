@@ -110,16 +110,21 @@ find parent where cumulative (cum) area (A) is less than random target (tgt) are
     if(rands[randi]<pCross){
       crossPt=i0+1+(int)(rands[randi]/pCross*(float)(genomeSize-1));
     }
-    while(i0<crossPt){
+    //while(i0<crossPt){
     /* load next bit from parent and increment i */
-      Vs[i0]=Vs[parent[0]+i0];
-      Vs[i1+i0]=Vs[parent[1]+i0];
-      ++i0;
-    }
-    while(i0<j){
+      //Vs[i0]=Vs[parent[0]+i0];
+      //Vs[i1+i0]=Vs[parent[1]+i0];
+      //++i0;
+    //}
+    //while(i0<j){
+      //Vs[i0]=Vs[parent[1]+i0];
+      //Vs[i1+i0]=Vs[parent[0]+i0];
+      //++i0;
+    //}
+    i0=crossPt;
+    for(i0;i0<j;i0++){
       Vs[i0]=Vs[parent[1]+i0];
       Vs[i1+i0]=Vs[parent[0]+i0];
-      ++i0;
     }
   }
 }
@@ -650,9 +655,9 @@ ScoreInitialChromsomes(int gpuDevice, Parameters &parameters) {
 
 void EvolveGenerations(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
-
   cudaSetDevice(gpuDevice);
-
+  float cpMute=(float(gpuDevice/10)+float(1))*parameters.pMut;
+  
   /* for loop for the generation */
   for (int currentGeneration=0; currentGeneration<parameters.nGen; currentGeneration++) {
 
@@ -694,7 +699,7 @@ void EvolveGenerations(int gpuDevice, Parameters &parameters) {
       parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList]+parameters.pSize,
       parameters.deviceParameters[gpuDevice].rands_d+parameters.pSize*3,
       parameters.pSize,
-      parameters.pMut,
+      cpMute,
       parameters.maxMut,
       parameters.genomeSize
     );
@@ -784,6 +789,7 @@ void EvolveGenerations(int gpuDevice, Parameters &parameters) {
     }
 
   } // here the loop for generations ends
+  std::cout << "Device " << gpuDevice << " " << cpMute << std::endl;
 }
 
 float ComputeDiff(const float *arrayA, const float *arrayB, const int N) {
@@ -810,7 +816,7 @@ main(int argc, char *argv[]) {
   Parameters parameters;
   std::map<std::string,DihCorrection> correctionMap;
   
-  int deviceCount; 
+  int deviceCount=0; 
   cudaGetDeviceCount(&deviceCount); 
   int maxGpuDevices = deviceCount;
 

@@ -110,22 +110,22 @@ find parent where cumulative (cum) area (A) is less than random target (tgt) are
     if(rands[randi]<pCross){
       crossPt=i0+1+(int)(rands[randi]/pCross*(float)(genomeSize-1));
     }
-    //while(i0<crossPt){
+    while(i0<crossPt){
     /* load next bit from parent and increment i */
-      //Vs[i0]=Vs[parent[0]+i0];
-      //Vs[i1+i0]=Vs[parent[1]+i0];
-      //++i0;
-    //}
-    //while(i0<j){
-      //Vs[i0]=Vs[parent[1]+i0];
-      //Vs[i1+i0]=Vs[parent[0]+i0];
-      //++i0;
-    //}
-    i0=crossPt;
-    for(i0;i0<j;i0++){
+      Vs[i0]=Vs[parent[0]+i0];
+      Vs[i1+i0]=Vs[parent[1]+i0];
+      ++i0;
+    }
+    while(i0<j){
       Vs[i0]=Vs[parent[1]+i0];
       Vs[i1+i0]=Vs[parent[0]+i0];
+      ++i0;
     }
+    //i0=crossPt;
+    //for(i0;i0<j;i0++){
+      //Vs[i0]=Vs[parent[1]+i0];
+      //Vs[i1+i0]=Vs[parent[0]+i0];
+    //}
   }
 }
 
@@ -381,6 +381,9 @@ struct Parameters {
   int rseed; // "Random seed (rseed): " << rseed << "\n\n";
   int peng; // "Print scores every  " << peng << "generations (peng)\n\n";
   int ncp; // "Print scores of only " << ncp << " chromosomes every peng \n\n";
+  int elitist; //elitist population we will keep every generation
+  int nEx; // number of migrants we will exchange
+  int iTime; //isolation time genetic algorithm runs until exchange
 
   /*specify the string of the savefile, scorefile, loadfile name */
   std::string saveFile,loadFile,scoreFile,scoreTest;
@@ -388,8 +391,8 @@ struct Parameters {
 /* Hardcoding these input but we will make user options 
   nisland is the number of subpopulation, iTime is the isolation time, nMig is the number of
   migrants added to migrant pool. nEx number of exchange btwn migrant pool and subpop */
-  int nIsland, iTime, nEx;
-  int exchrate;
+  int nIsland;
+  int exchrate; //the number of exchnages we do nGen/iTime
 
   int genomeSize, nConf, N, save;
   float *Vs, *tset, *tgts, *wts, *scores, *migrants; 
@@ -431,8 +434,10 @@ void ParseArgs(int argc, char *argv[], Parameters &parameters) {
   std::cout << "isolation time is " << parameters.iTime << "\n\n";
   parameters.nEx  = cfg.getValueOfKey<int>("nEx", 1);
   std::cout << "number of migrants to exchange is  " << parameters.nEx << "\n\n";
+  parameters.elitist  = cfg.getValueOfKey<int>("elitist", 10);
+  std::cout << "Elitist, the percent of parents we keep is  " << parameters.elitist << "\n\n"; 
   
-  parameters.save=parameters.pSize/10; // 10% of the population
+  parameters.save=parameters.pSize/parameters.elitist; // % of the population we keep
   parameters.exchrate=parameters.nGen/parameters.iTime; //get the number of exchange
 
   /* dealing with loading the input file and save file string name */
@@ -444,8 +449,6 @@ void ParseArgs(int argc, char *argv[], Parameters &parameters) {
       else if(argv[i][0]=='-'&&argv[i][1]=='f')parameters.scoreTest=argv[++i];
     }
   }
-
-
 }
 
 void LoadParameters(Parameters &parameters, std::map<std::string,DihCorrection> &correctionMap) {
@@ -489,8 +492,8 @@ void AllocateArrays(int gpuDevice, Parameters &parameters) {
   parameters.nRands=(3+parameters.genomeSize)*parameters.pSize;
   parameters.nBlocks=(parameters.pSize+BLOCK_SIZE-1)/BLOCK_SIZE;
 
-/*******************************| initializing more host and device variables|************************
-*         N (bitwise operation below) is the pSize (1st input) multiply by 2;                   *
+/*******************************| initializing more host and device variables|*******************
+*         N is pSize multiply by 2, use to get more of the seed and to help storeoffspring      *
 *       initiating the chromosomes  which have the solns                                        *
 ************************************************************************************************/
 
@@ -591,7 +594,7 @@ void LoadAmplitudeParameters(int gpuDevice, Parameters &parameters) {
 
   cudaSetDevice(gpuDevice);
 
-  // if we have a load file copy Vs (amplitude parameters) from the loaded file and populate Vs
+  // if we have a load Vs (amplitude parameters) from the loaded file and populate Vs
   if(!parameters.loadFile.empty()) {
     std::ifstream loadS(parameters.loadFile.c_str(), std::ios::in | std::ios::binary);
     loadS.read((char*)parameters.Vs,parameters.pSize*parameters.genomeSize*sizeof(*parameters.Vs));
@@ -644,7 +647,8 @@ ScoreInitialChromsomes(int gpuDevice, Parameters &parameters) {
 
    if((error=cudaGetLastError())!=cudaSuccess){fprintf(stderr, "Cuda error: %s (1stscore)\n", cudaGetErrorString(error));}
 
-   /* sort the scores from each chromosome of the initial population */
+   /* sort the scores from each chromosome of the initial population (2 x pSize) 
+     1st part is the begining of key sequence, 2nd end of key sequence, 3rd begining of values to sort*/
   thrust::sort_by_key(
     thrust::device_pointer_cast(parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList]),
     thrust::device_pointer_cast(parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList]+parameters.N),
@@ -662,6 +666,7 @@ ScoreInitialChromsomes(int gpuDevice, Parameters &parameters) {
 void EvolveGenerations(int gpuDevice, Parameters &parameters) {
   cudaError_t error;
   cudaSetDevice(gpuDevice);
+
   float cpMute=(float(gpuDevice/10)+float(1))*parameters.pMut;
   
   /* for loop for the generation */
@@ -727,14 +732,14 @@ void EvolveGenerations(int gpuDevice, Parameters &parameters) {
       parameters.deviceParameters[gpuDevice].xx_d);
     if((error=cudaGetLastError())!=cudaSuccess){fprintf(stderr, "Cuda error: %s (score)\n", cudaGetErrorString(error));}
 
-    /*****| Step6: Sort the scored chromosomes (individuals) & select for mating for next generation |**/
+    /*****| Step6: Sort the offspring and score for next generation |**/
     moveEm <<<(parameters.save+BLOCK_SIZE-1)/BLOCK_SIZE, BLOCK_SIZE>>> (
       parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList^1],
       parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList^1],
       parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList],
       parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList],
       parameters.save
-    );
+    ); //elitist
     moveEm <<<(parameters.pSize+BLOCK_SIZE-1)/BLOCK_SIZE, BLOCK_SIZE>>> (
       parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList^1]+parameters.save,
       parameters.deviceParameters[gpuDevice].ptrs_ds[parameters.deviceParameters[gpuDevice].curList^1]+parameters.save,
@@ -752,7 +757,8 @@ void EvolveGenerations(int gpuDevice, Parameters &parameters) {
     // switch the index so we swap the buffers: input becomes output and output becomes input
     parameters.deviceParameters[gpuDevice].curList ^= 1;
 
-    /* first sort only the ones that aren't going to be saved (elitist) */
+    /* first sort from save1 in pSize1 to save2 in pSize 2 {whats in here}, the offsprings  
+     |save{------pSize--------|save}-------pSize---------| */
     thrust::sort_by_key(
       thrust::device_pointer_cast(parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList]+parameters.save),
       thrust::device_pointer_cast(parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList]+parameters.pSize+parameters.save),
@@ -771,20 +777,21 @@ void EvolveGenerations(int gpuDevice, Parameters &parameters) {
     *   by uncommenting the if and end DEBUG statement, need to make this an input option               *
     *   such as -s which will mean print scores                                                         *
     ****************************************************************************************************/
-    //peng --> print every n generation, make a user option
-    //ncp --> number of chromosomes to print, make a user option as well
-    //if generation is divisable by peng
+    //if generation is divisable by peng, print initial, final and interval of peng
     if (currentGeneration % parameters.peng == 0) {
       std::ofstream scorefile;
       scorefile.open (parameters.scoreFile.c_str(), std::ios::out | std::ios::trunc); //it append to the writeout so make sure u delete scores file
       scorefile << "#Generation" << std::setw(14) << "Chromosomes" << std::setw(12) << "Scores\n";
-      cudaMemcpy(parameters.scores, parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(*parameters.scores)*parameters.N, cudaMemcpyDeviceToHost);
+      //copy over only ncp scores 
+      cudaMemcpy(parameters.scores, parameters.deviceParameters[gpuDevice].scores_ds[parameters.deviceParameters[gpuDevice].curList], sizeof(*parameters.scores)*parameters.ncp, cudaMemcpyDeviceToHost);
       if (parameters.ncp > parameters.pSize) {
-      printf("Parmfile error: ncp should be smaller than psize! \n");
-      std::abort();
+        printf("Parmfile error: ncp should be smaller than psize! \n");
+        std::abort();
       }
-      for(int m = 0; m< parameters.ncp; m++){
-        scorefile << std::setw(6) << currentGeneration << std::setw(14) << m << std::setw(18) << parameters.scores[m] << "\n";
+      else {
+        for(int m = 0; m< parameters.ncp; m++){
+          scorefile << std::setw(6) << currentGeneration << std::setw(14) << m << std::setw(18) << parameters.scores[m] << "\n";
+        }
       }
       scorefile.close();
     }
@@ -828,13 +835,12 @@ void writeFrcmod(int gpuDevice, Parameters &parameters, std::map<std::string,Dih
     /* these are the final scores for each individual in the population, print in the output file  */
     scoretest  << std::setw(8) << parameters.scores[i] << "\n";
    
-   // for(std::map<std::string,DihCorrection>::iterator it=correctionMap.begin(); it!=correctionMap.end(); ++it){
-      /* second.setGenome(Vs+ptrs[i]) is the dihedral parameters for each individual in the population */ 
-    //  scoretest  << std::setw(11) << it->second.setGenome(parameters.Vs[i*parameters.genomeSize]);
+    for(std::map<std::string,DihCorrection>::iterator it=correctionMap.begin(); it!=correctionMap.end(); ++it){
+      scoretest << std::setw(11) << it->second.setGenome(parameters.Vs+parameters.ptrs[i]);
     }
   scoretest.close();
+  }
 }
-
 void SelectMigrants (int gpuDevice, Parameters &parameters) {
   cudaSetDevice(gpuDevice);
   cudaMemcpy(
@@ -861,8 +867,9 @@ void Exchange (int gpuDevice, Parameters &parameters) {
  for (int i=0;i<parameters.nEx;i++){
    int otherGpu= SpecialRandom(gpuDevice, parameters.maxGpuDevices);
    int indnEx = rand() % parameters.nEx; //random # range from 0 to nEx
+   //copy by random from migrants array to Vs_d at bottom (starting from pSize-nEx)
    cudaMemcpy(
-    &parameters.deviceParameters[gpuDevice].Vs_d[(parameters.pSize-parameters.nEx)+i], 
+    &parameters.deviceParameters[gpuDevice].Vs_d[((parameters.pSize-parameters.nEx+i)*parameters.genomeSize)], 
      &parameters.migrants[(parameters.nEx*otherGpu+indnEx)*parameters.genomeSize], 
       parameters.genomeSize*sizeof(*parameters.Vs), 
        cudaMemcpyHostToDevice);
@@ -898,19 +905,49 @@ int main(int argc, char *argv[]) {
   
   for (int device = 0; device < parameters.maxGpuDevices; device++)
     ScoreInitialChromsomes(device, parameters);
-
+  
+  //run the genetic algorithm for iTime, do exchanges 
   #pragma omp parallel for
   for (int device = 0; device < parameters.maxGpuDevices; device++){
-    EvolveGenerations(device, parameters);
-    SelectMigrants(device, parameters);
+    for (int run=0;run<parameters.exchrate;run++){
+      std::cout << "run " << run << std::endl; 
+      EvolveGenerations(device, parameters);
+      SelectMigrants(device, parameters);
+      //std::cout<<"migrants array" << parameters.migrants[0] << std::endl;
+      Exchange(device, parameters);
+      //std::cout << "exchange done " << std::endl;
+
+    }  
   }
-  for (int device = 0; device < parameters.maxGpuDevices; device++){
-    Exchange(device, parameters);
-    EvolveGenerations(device, parameters);
-  }
+
   for (int device = 0; device < parameters.maxGpuDevices; device++) {
     CheckError(device, parameters);
-    std::cout << "Device " << device << " " << parameters.scores[0] << std::endl;
+    writeFrcmod(device, parameters, correctionMap); 
+    //std::cout << "Device " << device << " " << parameters.scores[0] << std::endl;
   }
+
+ /*****************| Free up Memory |******************************************************
+  free(ptrs);
+  curandDestroyGenerator(gen);
+  //cudaFree(xx_d);
+  cudaFree(Vs_d);
+  cudaFree(ptrs_d);
+  cudaFree(breaks_d);
+  cudaFree(tgts_d);
+  free(Vs);
+  free(scores);
+  //cudaFree(rands_d);
+  free(rands);
+  return 0;  
+  curandDestroyGenerator(gen);
+  //cudaFree(xx_d);
+  cudaFree(Vs_d);
+  cudaFree(ptrs_d);
+  cudaFree(breaks_d);
+  cudaFree(tgts_d);
+  free(Vs);
+  free(scores);
+  //cudaFree(rands_d);
+  free(rands);*/
   return 0;
 }

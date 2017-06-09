@@ -1,4 +1,4 @@
-
+#include <omp.h>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -906,6 +906,7 @@ int main(int argc, char *argv[]) {
   for (int device = 0; device < parameters.maxGpuDevices; device++)
     ScoreInitialChromsomes(device, parameters);
   
+  double t1=omp_get_wtime();
   //run the genetic algorithm for iTime, do exchanges 
   #pragma omp parallel for
   for (int device = 0; device < parameters.maxGpuDevices; device++){
@@ -919,6 +920,8 @@ int main(int argc, char *argv[]) {
 
     }  
   }
+  
+  double t2=omp_get_wtime();
 
   for (int device = 0; device < parameters.maxGpuDevices; device++) {
     CheckError(device, parameters);
@@ -926,6 +929,8 @@ int main(int argc, char *argv[]) {
     //std::cout << "Device " << device << " " << parameters.scores[0] << std::endl;
   }
 
+  
+  std::cout<< "Computation time" << t2-t1  << std::endl;
  /*****************| Free up Memory |******************************************************
   free(ptrs);
   curandDestroyGenerator(gen);
